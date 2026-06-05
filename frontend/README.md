@@ -20,7 +20,7 @@ pnpm dev
 如需修改后端地址：
 
 ```bash
-cp .env.example .env
+cp .env .env
 ```
 
 然后调整：

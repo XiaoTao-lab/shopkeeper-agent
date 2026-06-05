@@ -144,7 +144,7 @@ uv sync
 ### 4. 配置大模型 API Key
 
 ```bash
-cp .env.example .env
+cp .env .env
 ```
 
 把 `.env` 中的 `LLM_API_KEY` 替换成真实密钥：
@@ -240,7 +240,7 @@ pnpm dev
 
 ```bash
 cd frontend
-cp .env.example .env
+cp .env .env
 ```
 
 ```bash

@@ -13,6 +13,9 @@ from fastapi import FastAPI, Request
 from app.api.lifespan import lifespan
 from app.api.routers.query_router import query_router
 from app.core.context import request_id_ctx_var
+# uv run fastapi dev main.py后端
+#& "C:\Users\30358\.workbuddy\binaries\node\versions\22.22.2\pnpm.cmd" dev前端
+
 
 # lifespan 交给 FastAPI 管理，用于在服务启动和关闭时统一初始化与释放外部客户端
 app = FastAPI(lifespan=lifespan)

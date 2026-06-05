@@ -265,6 +265,9 @@ class MetaKnowledgeService:
         schema = OmegaConf.structured(MetaConfig)
         meta_config: MetaConfig = OmegaConf.to_object(OmegaConf.merge(schema, context))
 
+        # 清空旧数据，保证构建可重复执行
+        await self.meta_mysql_repository.clear_all()
+
         # 根据配置文件判断后续要进入哪条构建链路
         if meta_config.tables:
             # 将表信息和字段信息保存到 Meta MySQL

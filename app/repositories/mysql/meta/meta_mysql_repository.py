@@ -47,6 +47,12 @@ class MetaMySQLRepository:
             [MetricInfoMapper.to_model(metric_info) for metric_info in metric_infos]
         )
 
+    async def clear_all(self):
+        """清空元数据表，使构建可以重复执行"""
+        async with self.session.begin():
+            for table in ("column_metric", "metric_info", "column_info", "table_info"):
+                await self.session.execute(text(f"DELETE FROM {table}"))
+
     def save_column_metrics(self, column_metrics: list[ColumnMetric]):
         """批量保存字段与指标的关联关系"""
         self.session.add_all(

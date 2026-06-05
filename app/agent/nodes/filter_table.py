@@ -56,7 +56,7 @@ async def filter_table(state: DataAgentState, runtime: Runtime[DataAgentContext]
                     if column_info["name"] in result[table_info["name"]]
                 ]
                 filtered_table_infos.append(table_info)
-
+        logger.info(f"LLM 返回的选单: {result}")
         logger.info(
             f"过滤后的表信息：{[filtered_table_info['name'] for filtered_table_info in filtered_table_infos]}"
         )

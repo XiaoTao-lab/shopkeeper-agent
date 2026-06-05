@@ -33,15 +33,15 @@ class MySQLClientManager:
     def _get_url(self) -> str:
         """
         拼接 MySQL 异步连接地址
-        mysql+asyncmy 表示：连接 MySQL，并使用 asyncmy 作为异步驱动
+        mysql+aiomysql 表示：连接 MySQL，并使用 aiomysql 作为异步驱动
         """
-        return f"mysql+asyncmy://{self.config.user}:{self.config.password}@{self.config.host}:{self.config.port}/{self.config.database}?charset=utf8mb4"
+        return f"mysql+aiomysql://{self.config.user}:{self.config.password}@{self.config.host}:{self.config.port}/{self.config.database}?charset=utf8mb4"
 
     def init(self):
         """初始化 Engine 和 Session 工厂"""
         # 创建异步 Engine，相当于先把“数据库连接能力”准备好
         self.engine = create_async_engine(
-            self._get_url(), pool_size=10, pool_pre_ping=True
+            self._get_url(), pool_size=10
         )
         # 基于 Engine 创建 Session 工厂，后面真正查库时再拿 session
         self.session_factory = async_sessionmaker(

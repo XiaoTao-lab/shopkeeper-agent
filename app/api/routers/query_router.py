@@ -30,6 +30,6 @@ async def query_handler(
 
     return StreamingResponse(
         # query.query 是用户问题字符串；QueryService.query 返回异步生成器供响应逐段消费
-        query_service.query(query.query),
+        query_service.query(query.query),  # .query是QueryService类里的方法，第二个query是方法（QuerySchema）的变量，第三个是QuerySchema里的参数
         media_type="text/event-stream",
     )

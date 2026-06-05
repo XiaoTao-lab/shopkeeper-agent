@@ -59,3 +59,9 @@ Thumbs.db
 
 # Local TEI embedding model files (large)
 docker/embedding/
+
+# Project logs & temp
+agent_output.log
+logs/
+$null
+.claude/
