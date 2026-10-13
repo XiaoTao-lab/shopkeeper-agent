@@ -4,9 +4,9 @@ services:
     container_name: mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: dili123
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_USER: didilili
-      MYSQL_PASSWORD: dili123
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
       - "3307:3306"
     volumes:
@@ -15,7 +15,7 @@ services:
     command: --character-set-server=utf8mb4
       --collation-server=utf8mb4_general_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pdili123"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$$MYSQL_ROOT_PASSWORD\""]
       interval: 10s
       timeout: 5s
       retries: 3

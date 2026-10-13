@@ -141,17 +141,17 @@ cd shopkeeper-agent
 uv sync
 ```
 
-### 4. 配置大模型 API Key
+### 4. 配置环境变量
 
-```bash
-cp .env .env
-```
-
-把 `.env` 中的 `LLM_API_KEY` 替换成真实密钥：
+在项目根目录创建 `.env` 文件（已被 `.gitignore` 忽略，不会提交到仓库）：
 
 ```bash
 LLM_API_KEY=your_real_api_key
+MYSQL_PASSWORD=your_mysql_password
 ```
+
+- `LLM_API_KEY`：大模型平台的真实密钥，供 `conf/app_config.yaml` 中的 `${oc.env:LLM_API_KEY}` 解析。
+- `MYSQL_PASSWORD`：MySQL 密码，需与 `docker/.env` 中的 `MYSQL_PASSWORD` 保持一致（Docker Compose 从 `docker/.env` 读取，见下一步）。
 
 默认配置使用兼容 OpenAI 接口的硅基流动服务：
 

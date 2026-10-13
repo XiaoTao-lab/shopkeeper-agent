@@ -8,6 +8,15 @@
 .npm-cache
 .angular/
 .pnpm-store/
+# 修复 node_modules 解链时产生的临时备份目录（2026-10-13）
+_nm_flatbak_*/
+
+# 本地大文件与临时产物（2026-10-13 推送进度前补充）
+frontend/node_modules.broken.bak/
+_docker_wsl_vhdx_backup_*/
+_tmp_*
+_frontend-fixed.png
+frontend/tsc_out.txt
 
 # Python
 .venv/
