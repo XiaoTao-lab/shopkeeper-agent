@@ -4,6 +4,9 @@
 负责根据关键词从字段向量知识库中召回候选字段
 它解决的是“用户问题可能对应哪些数据库字段”的问题
 本章的主线是：关键词扩展 -> Embedding -> Qdrant 相似度检索 -> ColumnInfo 去重
+
+性能：关键词扩展后先一次性批量向量化（1 次网络往返），再按并发度上限并发检索 Qdrant。
+原先的“逐词串行”要付 2N 次往返（N 次 Embedding + N 次检索），现在压到 1 + N/并发。
 """
 
 from langchain_core.output_parsers import JsonOutputParser
@@ -11,11 +14,16 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime
 
 from app.agent.context import DataAgentContext
-from app.agent.llm import llm
+from app.agent.llm import get_llm
 from app.agent.state import DataAgentState
+from app.conf.app_config import app_config
 from app.core.log import logger
+from app.core.recall import dedup_items, embed_and_search
 from app.entities.column_info import ColumnInfo
 from app.prompt.prompt_loader import load_prompt
+
+# 本节点模型实例：关键词扩展属“轻任务”，配置里默认关闭思维链（thinking）以显著提速
+llm = get_llm("recall_column")
 
 
 async def recall_column(state: DataAgentState, runtime: Runtime[DataAgentContext]):
@@ -45,23 +53,20 @@ async def recall_column(state: DataAgentState, runtime: Runtime[DataAgentContext
 
         result = await chain.ainvoke({"query": query})
 
-        # 原始关键词和 LLM 扩展词一起参与召回；set 去重，避免重复请求同一关键词
-        keywords = set(keywords + result)
+        # 原始关键词和 LLM 扩展词一起参与召回；用 dict.fromkeys 去重并保留顺序，
+        # 让每次召回的检索顺序（进而候选字段顺序）稳定可复现
+        ordered_keywords = list(dict.fromkeys([*keywords, *result]))
 
-        # 用字段 id 做唯一键，因为多个关键词、同一字段的多个向量点都可能命中同一个字段
-        column_info_map: dict[str, ColumnInfo] = {}
-        for keyword in keywords:
-            # 查询词必须先转成向量，才能和第 9 章写入 Qdrant 的字段向量做相似度检索
-            embedding = await embedding_client.aembed_query(keyword)
-            current_column_infos: list[
-                ColumnInfo
-            ] = await column_qdrant_repository.search(embedding)
-            for column_info in current_column_infos:
-                if column_info.id not in column_info_map:
-                    column_info_map[column_info.id] = column_info
+        # 批量向量化 + 并发检索（并发度受配置上限约束），返回“每个关键词一组命中”
+        search_results = await embed_and_search(
+            ordered_keywords,
+            embedding_client,
+            column_qdrant_repository.search,
+            limit=app_config.recall.concurrency,
+        )
 
-        # 写回 state 的是去重后的 ColumnInfo 列表，不暴露 Qdrant 原始 point 结构
-        retrieved_column_infos: list[ColumnInfo] = list(column_info_map.values())
+        # 用字段 id 做唯一键：多个关键词、同一字段的多个向量点都可能命中同一个字段
+        retrieved_column_infos: list[ColumnInfo] = dedup_items(search_results)
 
         writer({"type": "progress", "step": step, "status": "success"})
         return {"retrieved_column_infos": retrieved_column_infos}

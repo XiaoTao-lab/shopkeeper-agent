@@ -35,7 +35,12 @@ CREATE TABLE metric_info
     name             VARCHAR(128) COMMENT '指标名称',
     description      TEXT COMMENT '指标描述',
     relevant_columns JSON COMMENT '关联的列',
-    alias            JSON COMMENT '指标别名'
+    alias            JSON COMMENT '指标别名',
+    formula          VARCHAR(512) COMMENT '标准计算口径，如 SUM(fact_order.order_amount)',
+    base_table       VARCHAR(64) COMMENT '指标主表',
+    time_column      VARCHAR(64) COMMENT '默认时间字段',
+    default_filters  JSON COMMENT '默认过滤条件',
+    unit             VARCHAR(16) COMMENT '指标单位'
 );
 
 

@@ -14,9 +14,9 @@ from app.api.lifespan import lifespan
 from app.api.routers.health_router import health_router
 from app.api.routers.query_router import query_router
 from app.core.context import request_id_ctx_var
-# uv run fastapi dev main.py后端
-#& "C:\Users\30358\.workbuddy\binaries\node\versions\22.22.2\pnpm.cmd" dev前端
 
+# uv run fastapi dev main.py后端
+#
 
 # lifespan 交给 FastAPI 管理，用于在服务启动和关闭时统一初始化与释放外部客户端
 app = FastAPI(lifespan=lifespan)
@@ -34,3 +34,9 @@ async def add_request_id(request: Request, call_next):
     response = await call_next(request)
     # 请求被处理之后
     return response
+
+
+#观测命令下钻单次（这一次卡在哪一步）	uv run python -m app.scripts.show_trace	    每个节点的耗时 / 状态 / 占比 / 报错，以及本次总耗时、LLM 次数、token
+# 列出最近	                    uv run python -m app.scripts.show_trace --last 20	        最近 N 次问数的状态、总耗时、节点数、LLM 次数
+# 横向聚合（哪一步系统性最慢）	    uv run python -m app.scripts.report_obs --days 7	        各节点 P50 / P95 / 耗时占比排行、token 成本、失败归因
+# 原始数据	                    MySQL trace / trace_span 两表	                            想自己 SQL 分析的底表

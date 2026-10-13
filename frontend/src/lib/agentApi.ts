@@ -8,6 +8,10 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? ""
 
 type QueryOptions = {
   signal?: AbortSignal;
+  // 多轮会话 id：同一会话各轮传同一个值，后端据此续接对话历史
+  threadId?: string;
+  // 调用方角色：通过请求头 X-User-Role 传给后端，决定行级权限与列脱敏
+  role?: string;
   onEvent: (event: AgentEvent) => void;
 };
 
@@ -17,8 +21,9 @@ export async function streamQuery(query: string, options: QueryOptions) {
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
+      ...(options.role ? { "X-User-Role": options.role } : {}),
     },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, thread_id: options.threadId }),
     signal: options.signal,
   });
 

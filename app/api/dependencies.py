@@ -21,7 +21,9 @@ from app.clients.mysql_client_manager import (
 from app.clients.qdrant_client_manager import qdrant_client_manager
 from app.repositories.es.value_es_repository import ValueESRepository
 from app.repositories.mysql.dw.dw_mysql_repository import DWMySQLRepository
+from app.repositories.mysql.meta.audit_log_repository import AuditLogRepository
 from app.repositories.mysql.meta.meta_mysql_repository import MetaMySQLRepository
+from app.repositories.mysql.meta.trace_repository import TraceRepository
 from app.repositories.qdrant.column_qdrant_repository import ColumnQdrantRepository
 from app.repositories.qdrant.metric_qdrant_repository import MetricQdrantRepository
 from app.services.query_service import QueryService
@@ -41,6 +43,22 @@ async def get_meta_mysql_repository(
     """基于请求级 Session 创建元数据仓储"""
 
     return MetaMySQLRepository(session)
+
+
+async def get_audit_log_repository(
+    session: Annotated[AsyncSession, Depends(get_meta_session)],
+) -> AuditLogRepository:
+    """基于请求级 Meta Session 创建审计仓储（与元数据仓储共用同一连接）"""
+
+    return AuditLogRepository(session)
+
+
+async def get_trace_repository(
+    session: Annotated[AsyncSession, Depends(get_meta_session)],
+) -> TraceRepository:
+    """基于请求级 Meta Session 创建链路追踪仓储（旁路能力，写入 fail-open）"""
+
+    return TraceRepository(session)
 
 
 async def get_embedding_client() -> HuggingFaceEndpointEmbeddings:
@@ -97,6 +115,10 @@ async def get_query_service(
         MetricQdrantRepository, Depends(get_metric_qdrant_repository)
     ],
     value_es_repository: Annotated[ValueESRepository, Depends(get_value_es_repository)],
+    audit_log_repository: Annotated[
+        AuditLogRepository, Depends(get_audit_log_repository)
+    ],
+    trace_repository: Annotated[TraceRepository, Depends(get_trace_repository)],
 ) -> QueryService:
     """组装一次查询所需的业务服务"""
 
@@ -108,4 +130,6 @@ async def get_query_service(
         column_qdrant_repository=column_qdrant_repository,
         metric_qdrant_repository=metric_qdrant_repository,
         value_es_repository=value_es_repository,
+        audit_log_repository=audit_log_repository,
+        trace_repository=trace_repository,
     )

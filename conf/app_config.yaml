@@ -13,14 +13,14 @@ db_meta:
   host: localhost
   port: 3307
   user: didilili
-  password: dili123
+  password: ${oc.env:MYSQL_PASSWORD}
   database: meta
 
 db_dw:
   host: localhost
   port: 3307
   user: didilili
-  password: dili123
+  password: ${oc.env:MYSQL_PASSWORD}
   database: dw
 
 qdrant:
@@ -39,6 +39,55 @@ es:
   index_name: data_agent
 
 llm:
-  model_name: qwen3.7-max
+  model_name: qwen3.8-flash
   api_key: ${oc.env:LLM_API_KEY}
-  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  base_url: https://ws-vkc7y1qja48h6kn0.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+  # 关闭思维链（thinking）的节点。当前模型默认开启 thinking，实测每次调用约 97% 的
+  # 输出 token 花在 reasoning 上（一次扩展“想” 480 token / 8.32s，而答案只有 8 token）；
+  # 关掉后同 prompt 0.73s 返回、答案不变。此处列出的都是“轻任务”节点：
+  #   recall_*  = 关键词扩展（词汇联想，不需要长链推理）
+  #   filter_*  = 从候选里挑选（同样不需要长链推理）
+  # generate_sql 刻意不在此列——生成正确 SQL 更依赖模型推理，保留 thinking。
+  # 回滚：把节点名从本列表删掉即可恢复该节点的 thinking。
+  no_think_nodes:
+    - recall_column
+    - recall_value
+    - recall_metric
+    - filter_table
+    - filter_metric
+
+sql_guard:
+  max_rows: 1000
+
+# 可观测（链路追踪）。enable=false 时节点不做任何埋点，性能零损耗；
+# sample_rate 控制采样比例（1.0 = 全采，本地开发默认全采）；
+# store_span=false 时只写 trace 头表，不写 trace_span 明细（高并发场景省写入）。
+observability:
+  enable: true
+  sample_rate: 1.0
+  store_span: true
+
+# 多路召回的并发控制。三路召回会按关键词并发检索（先批量向量化再并发查询），
+# concurrency 限制单路内部"同时在飞"的请求数，防止关键词较多时瞬时打爆
+# Qdrant / Elasticsearch。<=0 表示不限制。
+recall:
+  concurrency: 8
+
+# 角色权限（RBAC）。region_ids 为空的角色不做行级过滤（全量可见）；
+# mask_columns 列出需要列级脱敏的字段名（按结果列名匹配）。
+# 区域 id 映射见 conf/meta_config.yaml：华东=R002/R005、华南=R001、华北=R004、西南=R003、华中=R006
+rbac:
+  default_role: guest
+  roles:
+    admin:
+      region_ids: []
+      mask_columns: []
+    east_manager:
+      region_ids: ["R002", "R005"]
+      mask_columns: []
+    analyst:
+      region_ids: []
+      mask_columns: ["customer_name"]
+    guest:
+      region_ids: ["R002", "R005"]
+      mask_columns: ["customer_name"]

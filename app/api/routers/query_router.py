@@ -8,7 +8,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from starlette.responses import StreamingResponse
 
 from app.api.dependencies import get_query_service
@@ -25,11 +25,17 @@ async def query_handler(
     query: QuerySchema,
     # 服务依赖：FastAPI 会调用 get_query_service，递归组装它所需的仓储和客户端
     query_service: Annotated[QueryService, Depends(get_query_service)],
+    # 身份入口：演示用请求头携带角色，后端据此做行级权限与脱敏。
+    # 生产替换点：把这里换成从 JWT 解出角色即可，下游零改动。
+    x_user_role: Annotated[str | None, Header(alias="X-User-Role")] = None,
 ):
     """接收用户自然语言问题，并流式返回 LangGraph 工作流输出"""
 
     return StreamingResponse(
-        # query.query 是用户问题字符串；QueryService.query 返回异步生成器供响应逐段消费
-        query_service.query(query.query),  # .query是QueryService类里的方法，第二个query是方法（QuerySchema）的变量，第三个是QuerySchema里的参数
+        # query.query 是用户问题字符串；query.thread_id 用于多轮会话续接；
+        # x_user_role 决定本轮的行级权限与列脱敏范围
+        query_service.query(
+            query.query, query.thread_id, x_user_role
+        ),  # .query是QueryService类里的方法，第二个query是方法（QuerySchema）的变量，第三个是QuerySchema里的参数
         media_type="text/event-stream",
     )

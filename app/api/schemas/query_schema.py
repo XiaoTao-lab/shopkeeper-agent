@@ -13,3 +13,6 @@ class QuerySchema(BaseModel):
 
     # 前端请求体中的 query 字段，例如 {"query": "统计华北地区销售额"}
     query: str
+    # 多轮会话 id：同一会话的多次提问传同一个 thread_id，后端据此续接对话历史；
+    # 不传时后端生成一个并随 meta 事件下发，前端可自行保存后复用
+    thread_id: str | None = None

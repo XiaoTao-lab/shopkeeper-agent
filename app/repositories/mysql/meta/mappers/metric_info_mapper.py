@@ -23,6 +23,12 @@ class MetricInfoMapper:
             description=model.description,
             relevant_columns=model.relevant_columns,
             alias=model.alias,
+            # 口径字段可能为 NULL（历史数据），统一兜底为实体默认值
+            formula=model.formula or "",
+            base_table=model.base_table or "",
+            time_column=model.time_column or "",
+            default_filters=model.default_filters or [],
+            unit=model.unit or "",
         )
 
     @staticmethod

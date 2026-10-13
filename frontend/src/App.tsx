@@ -10,6 +10,7 @@ import {
   Leaf,
   MessageSquarePlus,
   Server,
+  ShieldCheck,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./components/Composer";
@@ -17,6 +18,7 @@ import { EmptyState } from "./components/EmptyState";
 import { MessageBubble } from "./components/MessageBubble";
 import { streamQuery } from "./lib/agentApi";
 import { cn, summarizeResult } from "./lib/format";
+import { ROLES } from "./lib/roles";
 import type { AgentEvent, ChatMessage, StepState } from "./types/agent";
 
 const examples = [
@@ -28,7 +30,7 @@ const examples = [
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "Vite /api proxy";
 
-function makeId() {
+function makeId(): string {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
@@ -46,6 +48,10 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [activeController, setActiveController] = useState<AbortController | null>(null);
+  // 多轮会话 id：一次对话内保持不变，各轮提问带上它以续接后端历史；"新会话"时更换
+  const [sessionId, setSessionId] = useState(() => makeId());
+  // 当前身份：随请求头 X-User-Role 传给后端，决定行级权限与列脱敏
+  const [role, setRole] = useState("admin");
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const isStreaming = Boolean(activeController);
@@ -90,11 +96,23 @@ export default function App() {
     setMessages((current) => [...current, userMessage, assistantMessage]);
 
     const onEvent = (event: AgentEvent) => {
+      // 会话元信息不渲染为消息，只用于同步后端下发的 thread_id
+      if (event.type === "meta") {
+        if (event.thread_id) setSessionId(event.thread_id);
+        return;
+      }
+
       setMessages((current) =>
         current.map((message) => {
           if (message.id !== assistantId) return message;
 
           if (event.type === "progress") {
+            // 已经进入终态（出数 / 报错 / 澄清）后，尾部的进度事件只更新步骤条，
+            // 不再改写正文——否则收尾节点（如"记录审计"）会把最终结论覆盖成"正在执行：…"。
+            // 三条短路路径（意图拦截 / 澄清反问 / 沙箱拦截）收口到 finalize 后都会出现这种尾部进度。
+            if (message.status === "done" || message.status === "error") {
+              return { ...message, steps: upsertStep(message.steps, event) };
+            }
             return {
               ...message,
               content: event.status === "running" ? `正在执行：${event.step}` : message.content,
@@ -103,11 +121,30 @@ export default function App() {
           }
 
           if (event.type === "result") {
+            // 空结果：直接用后端给出的可读提示作为正文，并清空 result 避免渲染出 "-" 表格
+            const empty = Boolean(event.empty);
             return {
               ...message,
               status: "done",
-              content: summarizeResult(event.data),
-              result: event.data,
+              content:
+                empty && event.message ? event.message : summarizeResult(event.data),
+              result: empty ? undefined : event.data,
+              // 一句话结论、图表说明书与可解释信息：均由后端纯规则下发
+              summary: empty ? undefined : event.summary,
+              chart: empty ? undefined : event.chart,
+              explain: event.explain,
+              // 权限提示：角色、是否行级过滤、脱敏列
+              permission: event.permission,
+            };
+          }
+
+          if (event.type === "clarify") {
+            // 澄清追问：把反问作为正文，候选指标渲染成可点击选项（点击后填入输入框）
+            return {
+              ...message,
+              status: "done",
+              content: event.message,
+              clarify: event.options ?? [],
             };
           }
 
@@ -122,7 +159,12 @@ export default function App() {
     };
 
     try {
-      await streamQuery(query, { signal: controller.signal, onEvent });
+      await streamQuery(query, {
+        signal: controller.signal,
+        threadId: sessionId,
+        role,
+        onEvent,
+      });
       setMessages((current) =>
         current.map((message) =>
           message.id === assistantId && message.status === "streaming"
@@ -157,6 +199,8 @@ export default function App() {
     if (isStreaming) return;
     setMessages([]);
     setDraft("");
+    // 开启新会话：更换 thread_id，让后端从空历史开始
+    setSessionId(makeId());
   };
 
   return (
@@ -241,18 +285,37 @@ export default function App() {
                 <div className="truncate text-xs text-ink/45">FastAPI SSE / LangGraph</div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={clearConversation}
-              disabled={messages.length === 0 || isStreaming}
-              className={cn(
-                "grid h-9 w-9 place-items-center rounded-full text-ink/55 transition hover:bg-ink/5 hover:text-ink disabled:cursor-not-allowed disabled:opacity-35",
-              )}
-              title="清空"
-              aria-label="清空"
-            >
-              <Eraser className="h-4 w-4" aria-hidden="true" />
-            </button>
+            <div className="flex items-center gap-2">
+              <label className="inline-flex items-center gap-2 border border-ink/15 bg-white/55 px-2.5 py-1.5 text-xs text-ink/70">
+                <ShieldCheck className="h-3.5 w-3.5 text-moss" aria-hidden="true" />
+                <span className="hidden sm:inline">身份</span>
+                <select
+                  value={role}
+                  onChange={(event) => setRole(event.target.value)}
+                  disabled={isStreaming}
+                  className="bg-transparent text-xs text-ink outline-none disabled:cursor-not-allowed"
+                  aria-label="切换当前身份"
+                >
+                  {ROLES.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={clearConversation}
+                disabled={messages.length === 0 || isStreaming}
+                className={cn(
+                  "grid h-9 w-9 place-items-center rounded-full text-ink/55 transition hover:bg-ink/5 hover:text-ink disabled:cursor-not-allowed disabled:opacity-35",
+                )}
+                title="清空"
+                aria-label="清空"
+              >
+                <Eraser className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
           </header>
 
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -261,7 +324,11 @@ export default function App() {
             ) : (
               <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 lg:px-8">
                 {messages.map((message) => (
-                  <MessageBubble key={message.id} message={message} />
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    onPickClarify={(text) => setDraft(text)}
+                  />
                 ))}
               </div>
             )}

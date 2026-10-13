@@ -22,17 +22,23 @@ class MetricQdrantRepository:
     def __init__(self, client: AsyncQdrantClient):
         self.client = client
 
-    async def ensure_collection(self):
-        """确保指标向量集合存在，并按当前 Embedding 维度初始化"""
-        if not await self.client.collection_exists(self.collection_name):
-            await self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    # 向量维度必须和 Embedding 模型输出一致，否则写入时会失败
-                    size=app_config.qdrant.embedding_size,
-                    distance=Distance.COSINE,
-                ),
-            )
+    async def recreate_collection(self):
+        """删除并重建指标向量集合，保证离线构建幂等
+
+        构建脚本会为每个语义入口生成随机 UUID 作为 point id，
+        若只在旧集合上追加，历史脏点会与本次数据共存（甚至同名指标口径不一致），
+        召回时先命中旧点就会丢掉口径。这里先删后建，等价于 MySQL 侧的 clear_all。
+        """
+        if await self.client.collection_exists(self.collection_name):
+            await self.client.delete_collection(self.collection_name)
+        await self.client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config=VectorParams(
+                # 向量维度必须和 Embedding 模型输出一致，否则写入时会失败
+                size=app_config.qdrant.embedding_size,
+                distance=Distance.COSINE,
+            ),
+        )
 
     async def upsert(
         self,

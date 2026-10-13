@@ -6,7 +6,7 @@
 就可以按属性方式读取日志 MySQL Qdrant Embedding Elasticsearch 和 LLM 配置
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -85,6 +85,67 @@ class LLMConfig:
     model_name: str
     api_key: str
     base_url: str
+    # 关闭思维链（thinking）的节点名列表。这些节点属“轻任务”（关键词扩展、表/指标过滤），
+    # 关闭后单次调用耗时与 token 大幅下降；缺省为空表示所有节点都保留 thinking。
+    no_think_nodes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SQLGuardConfig:
+    """SQL 安全沙箱配置"""
+
+    max_rows: int
+
+
+@dataclass
+class ObservabilityConfig:
+    """链路追踪（可观测）配置"""
+
+    # 总开关：关闭时节点不做任何埋点，追踪零开销
+    enable: bool
+    # 采样比例（0~1）：1.0 表示全量采集，小于 1 时按比例抽样
+    sample_rate: float
+    # 是否落 trace_span 明细：关闭时只写 trace 头表（高并发场景省写入）
+    store_span: bool
+
+
+@dataclass
+class RecallConfig:
+    """多路召回的并发控制配置"""
+
+    # 单路召回内部并发检索的最大并发数；<=0 表示不限制（等价于全量并发）
+    concurrency: int = 8
+
+
+@dataclass
+class RoleConfig:
+    """单个角色的权限配置"""
+
+    # 允许访问的区域 id 白名单；为空表示不做行级过滤（全量可见）
+    region_ids: list[str]
+    # 需要列级脱敏的字段名列表（按结果列名匹配）
+    mask_columns: list[str]
+
+
+@dataclass
+class RBACConfig:
+    """角色权限总配置"""
+
+    default_role: str
+    roles: dict[str, RoleConfig]
+
+    def resolve_name(self, role: str | None) -> str:
+        """返回生效的角色名；未知或缺失一律回落到 default_role（最小权限原则）。"""
+        return role if role and role in self.roles else self.default_role
+
+    def resolve(self, role: str | None) -> RoleConfig:
+        """把请求携带的角色解析成权限配置。
+
+        未知或缺失的角色一律回落到 default_role，避免"给不出角色就放行全量"。
+        """
+        return self.roles.get(self.resolve_name(role)) or RoleConfig(
+            region_ids=[], mask_columns=[]
+        )
 
 
 @dataclass
@@ -98,6 +159,11 @@ class AppConfig:
     embedding: EmbeddingConfig
     es: ESConfig
     llm: LLMConfig
+    sql_guard: SQLGuardConfig
+    rbac: RBACConfig
+    observability: ObservabilityConfig
+    # 召回并发配置带默认值：即使配置文件里没有 recall 段也能正常启动
+    recall: RecallConfig = field(default_factory=RecallConfig)
 
 
 # 从当前文件位置回到项目根目录，再定位到 conf/app_config.yaml

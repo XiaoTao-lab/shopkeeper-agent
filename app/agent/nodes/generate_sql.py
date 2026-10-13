@@ -28,6 +28,16 @@ async def generate_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]
         # 这些上下文都由前置节点准备完成，模型只在给定表 字段 指标口径范围内生成 SQL
         table_infos = state["table_infos"]
         metric_infos = state["metric_infos"]
+        # 冻结后的指标口径约束（由 resolve_metric 节点产出），为空时给一句兜底说明
+        metric_caliber_text = (
+            state.get("metric_caliber_text")
+            or "（本次未匹配到已冻结的标准指标口径，请基于用户问题语义生成）"
+        )
+        # 冻结后的时间范围约束（由 resolve_time 节点产出），为空时说明本次无明确时间范围
+        time_range_text = (
+            state.get("time_range_text")
+            or "（本次未解析到明确的时间范围，如问题隐含时间条件请谨慎处理）"
+        )
         date_info = state["date_info"]
         db_info = state["db_info"]
         query = state["query"]
@@ -37,6 +47,8 @@ async def generate_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]
             input_variables=[
                 "table_infos",
                 "metric_infos",
+                "metric_caliber_text",
+                "time_range_text",
                 "date_info",
                 "db_info",
                 "query",
@@ -55,6 +67,9 @@ async def generate_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]
                 "metric_infos": yaml.dump(
                     metric_infos, allow_unicode=True, sort_keys=False
                 ),
+                # 口径与时间约束是纯文本块，直接透传，避免被 YAML 转义干扰模型阅读
+                "metric_caliber_text": metric_caliber_text,
+                "time_range_text": time_range_text,
                 "date_info": yaml.dump(date_info, allow_unicode=True, sort_keys=False),
                 "db_info": yaml.dump(db_info, allow_unicode=True, sort_keys=False),
                 "query": query,

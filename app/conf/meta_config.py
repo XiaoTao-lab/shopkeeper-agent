@@ -41,13 +41,24 @@ class TableConfig:
 class MetricConfig:
     """
     单个指标的同步配置
-    用来描述指标和底层字段之间的关联关系
+    用来描述指标和底层字段之间的关联关系，并承载语义层口径
+    formula/base_table/time_column/default_filters/unit 提供默认值，兼容旧配置
     """
 
     name: str
     description: str
     relevant_columns: list[str]
     alias: list[str]
+    # 标准计算口径，如 SUM(fact_order.order_amount)
+    formula: str = ""
+    # 指标主表，如 fact_order
+    base_table: str = ""
+    # 默认时间字段，如 fact_order.date_id
+    time_column: str = ""
+    # 默认过滤条件；为 None 表示无附加过滤
+    default_filters: Optional[list[str]] = None
+    # 指标单位，如 元 件 人 笔
+    unit: str = ""
 
 
 @dataclass

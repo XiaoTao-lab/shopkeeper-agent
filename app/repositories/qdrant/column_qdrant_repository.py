@@ -23,15 +23,20 @@ class ColumnQdrantRepository:
     def __init__(self, client: AsyncQdrantClient):
         self.client = client
 
-    async def ensure_collection(self):
-        """确保字段向量集合存在，并按配置中的维度初始化"""
-        if not await self.client.collection_exists(self.collection_name):
-            await self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    size=app_config.qdrant.embedding_size, distance=Distance.COSINE
-                ),
-            )
+    async def recreate_collection(self):
+        """删除并重建字段向量集合，保证离线构建幂等
+
+        构建脚本用随机 UUID 作为 point id，只追加会让历史脏点残留；
+        先删后建可保证每次构建的集合与配置严格一致。
+        """
+        if await self.client.collection_exists(self.collection_name):
+            await self.client.delete_collection(self.collection_name)
+        await self.client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config=VectorParams(
+                size=app_config.qdrant.embedding_size, distance=Distance.COSINE
+            ),
+        )
 
     async def upsert(
         self,

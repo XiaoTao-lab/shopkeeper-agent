@@ -4,6 +4,9 @@
 负责从字段值全文索引中召回候选取值
 当用户问题里出现店铺名 类目名 地区名等业务值时，这一步可以帮助定位真实字段和值
 实现路径和字段/指标召回不同：关键词扩展 -> Elasticsearch 全文检索 -> ValueInfo 去重
+
+性能：这一步不涉及 Embedding，瓶颈在 N 次 ES 检索的串行等待；
+改为按并发度上限并发检索后，墙钟从 N 次累加压到约 1 个批次的时间。
 """
 
 from langchain_core.output_parsers import JsonOutputParser
@@ -11,11 +14,16 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime
 
 from app.agent.context import DataAgentContext
-from app.agent.llm import llm
+from app.agent.llm import get_llm
 from app.agent.state import DataAgentState
+from app.conf.app_config import app_config
 from app.core.log import logger
+from app.core.recall import dedup_items, search_by_keywords
 from app.entities.value_info import ValueInfo
 from app.prompt.prompt_loader import load_prompt
+
+# 本节点模型实例：关键词扩展属“轻任务”，配置里默认关闭思维链（thinking）以显著提速
+llm = get_llm("recall_value")
 
 
 async def recall_value(state: DataAgentState, runtime: Runtime[DataAgentContext]):
@@ -45,22 +53,22 @@ async def recall_value(state: DataAgentState, runtime: Runtime[DataAgentContext]
 
         result = await chain.ainvoke({"query": query})
 
-        # 通用关键词和字段值扩展词一起检索 ES，尽量提高真实取值召回率
-        keywords = set(keywords + result)
+        # 通用关键词和字段值扩展词一起检索 ES；去重同时保留顺序，保证候选取值顺序稳定
+        ordered_keywords = list(dict.fromkeys([*keywords, *result]))
+
+        # 并发检索：把原先逐词串行的 ES 查询放进同一个事件循环，
+        # 并发度由配置上限约束，避免关键词较多时瞬时打爆 ES
+        search_results = await search_by_keywords(
+            ordered_keywords,
+            value_es_repository.search,
+            limit=app_config.recall.concurrency,
+        )
 
         # 用 ValueInfo.id 去重，避免多个关键词命中同一条字段值记录
-        value_infos_map: dict[str, ValueInfo] = {}
-        for keyword in keywords:
-            current_value_infos: list[ValueInfo] = await value_es_repository.search(
-                keyword
-            )
-            for current_value_info in current_value_infos:
-                if current_value_info.id not in value_infos_map:
-                    value_infos_map[current_value_info.id] = current_value_info
+        retrieved_value_infos: list[ValueInfo] = dedup_items(search_results)
 
         # 写回 state 的是去重后的字段值实体，后续合并节点再决定如何组织上下文
-        retrieved_value_infos: list[ValueInfo] = list(value_infos_map.values())
-        logger.info(f"检索到字段取值：{list(value_infos_map.keys())}")
+        logger.info(f"检索到字段取值：{[info.id for info in retrieved_value_infos]}")
         writer({"type": "progress", "step": step, "status": "success"})
         return {"retrieved_value_infos": retrieved_value_infos}
     except Exception as e:

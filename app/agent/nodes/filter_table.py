@@ -11,10 +11,13 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime
 
 from app.agent.context import DataAgentContext
-from app.agent.llm import llm
+from app.agent.llm import get_llm
 from app.agent.state import DataAgentState, TableInfoState
 from app.core.log import logger
 from app.prompt.prompt_loader import load_prompt
+
+# 本节点模型实例：从候选表里挑选属“轻任务”，配置里默认关闭思维链（thinking）以显著提速
+llm = get_llm("filter_table")
 
 
 async def filter_table(state: DataAgentState, runtime: Runtime[DataAgentContext]):

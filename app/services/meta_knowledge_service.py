@@ -100,7 +100,7 @@ class MetaKnowledgeService:
 
     async def _save_column_info_to_qdrant(self, column_infos: list[ColumnInfo]):
         """把字段元数据继续推进成可语义检索的 Qdrant 向量点"""
-        await self.column_qdrant_repository.ensure_collection()
+        await self.column_qdrant_repository.recreate_collection()
 
         points: list[dict] = []
         for column_info in column_infos:
@@ -190,12 +190,18 @@ class MetaKnowledgeService:
 
         for metric in meta_config.metrics:
             # MetricInfo 表达指标本身，当前直接用指标名作为稳定业务 id
+            # 语义层口径字段一并落库，供 SQL 生成阶段冻结口径使用
             metric_info = MetricInfo(
                 id=metric.name,
                 name=metric.name,
                 description=metric.description,
                 relevant_columns=metric.relevant_columns,
                 alias=metric.alias,
+                formula=metric.formula or "",
+                base_table=metric.base_table or "",
+                time_column=metric.time_column or "",
+                default_filters=metric.default_filters or [],
+                unit=metric.unit or "",
             )
             metric_infos.append(metric_info)
             for column in metric.relevant_columns:
@@ -212,7 +218,7 @@ class MetaKnowledgeService:
 
     async def _save_metrics_to_qdrant(self, metric_infos: list[MetricInfo]):
         """把指标元数据继续推进成可语义检索的 Qdrant 向量点"""
-        await self.metric_qdrant_repository.ensure_collection()
+        await self.metric_qdrant_repository.recreate_collection()
 
         points: list[dict] = []
         for metric_info in metric_infos:

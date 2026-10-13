@@ -14,7 +14,9 @@ from langchain_huggingface import HuggingFaceEndpointEmbeddings
 
 from app.repositories.es.value_es_repository import ValueESRepository
 from app.repositories.mysql.dw.dw_mysql_repository import DWMySQLRepository
+from app.repositories.mysql.meta.audit_log_repository import AuditLogRepository
 from app.repositories.mysql.meta.meta_mysql_repository import MetaMySQLRepository
+from app.repositories.mysql.meta.trace_repository import TraceRepository
 from app.repositories.qdrant.column_qdrant_repository import ColumnQdrantRepository
 from app.repositories.qdrant.metric_qdrant_repository import MetricQdrantRepository
 
@@ -34,3 +36,7 @@ class DataAgentContext(TypedDict):
     meta_mysql_repository: MetaMySQLRepository
     # 数仓仓储，负责在额外上下文补全时读取数据库方言 版本等执行环境信息
     dw_mysql_repository: DWMySQLRepository
+    # 审计日志仓储，负责在一次问数结束后写留痕
+    audit_log_repository: AuditLogRepository
+    # 链路追踪仓储，负责在一次问数结束后写 trace / span（旁路能力，可缺省）
+    trace_repository: TraceRepository

@@ -130,12 +130,19 @@ async def merge_retrieved_info(
 
         # 7. 生成指标上下文
         # 指标上下文保留名称 描述 别名和依赖字段，足够让模型理解业务口径。
+        # 同时透传语义层口径（标准计算式 主表 时间字段 默认过滤 单位），
+        # 供后续 resolve_metric 节点冻结成权威约束，避免模型自由解释口径。
         metric_infos: list[MetricInfoState] = [
             MetricInfoState(
                 name=retrieved_metric_info.name,
                 description=retrieved_metric_info.description,
                 relevant_columns=retrieved_metric_info.relevant_columns,
                 alias=retrieved_metric_info.alias,
+                formula=retrieved_metric_info.formula,
+                base_table=retrieved_metric_info.base_table,
+                time_column=retrieved_metric_info.time_column,
+                default_filters=retrieved_metric_info.default_filters,
+                unit=retrieved_metric_info.unit,
             )
             for retrieved_metric_info in retrieved_metric_infos
         ]
