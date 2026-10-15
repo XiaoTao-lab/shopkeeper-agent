@@ -44,9 +44,13 @@ from app.clients.qdrant_client_manager import qdrant_client_manager
 from app.core.sql_metrics import normalize_rows, normalize_sql
 from app.repositories.es.value_es_repository import ValueESRepository
 from app.repositories.mysql.dw.dw_mysql_repository import DWMySQLRepository
+from app.repositories.mysql.meta.business_glossary_repository import (
+    BusinessGlossaryRepository,
+)
 from app.repositories.mysql.meta.meta_mysql_repository import MetaMySQLRepository
 from app.repositories.qdrant.column_qdrant_repository import ColumnQdrantRepository
 from app.repositories.qdrant.metric_qdrant_repository import MetricQdrantRepository
+from app.services.business_glossary_service import render_glossary
 
 # 用例文件固定放在 tests/eval 下，避免依赖运行时工作目录
 CASES_PATH = (
@@ -88,12 +92,15 @@ async def _run_one(
     context: DataAgentContext,
     dw_repository: DWMySQLRepository,
     role: str,
+    glossary_text: str,
 ) -> dict:
     """跑单条用例，返回评测明细"""
 
-    # 用全量角色（默认 admin）评测“生成 SQL 的准确率”，避免 RLS 把区域过滤
+    # 用全量角色（默认 admin）评测"生成 SQL 的准确率"，避免 RLS 把区域过滤
     # 注入进 SQL 干扰 EM/EX；权限/脱敏的正确性由 run_cases.py 的 RLS/MASK 组单独评测。
-    state = DataAgentState(query=case["question"], user_role=role)
+    state = DataAgentState(
+        query=case["question"], user_role=role, glossary_text=glossary_text
+    )
     # ainvoke 拿到的是图执行完的最终 state，可直接读 sql / error
     # 挂了 checkpointer 后必须提供 thread_id；用用例 id 作为会话键，保证各用例历史互不串扰
     config = {"configurable": {"thread_id": f"eval-{case['id']}"}}
@@ -127,6 +134,7 @@ async def evaluate(
     limit: int | None,
     only: str | None,
     role: str,
+    glossary_text: str,
 ) -> list[dict]:
     """逐条评测，返回明细列表"""
 
@@ -137,7 +145,9 @@ async def evaluate(
         if limit is not None and len(results) >= limit:
             break
         print(f"… 评测 {case['id']}：{case['question']}")
-        results.append(await _run_one(case, context, dw_repository, role))
+        results.append(
+            await _run_one(case, context, dw_repository, role, glossary_text)
+        )
     return results
 
 
@@ -217,8 +227,22 @@ async def main() -> None:
                 dw_mysql_repository=dw_mysql_repository,
             )
 
+            # 读取启用业务字典并渲染，与生产链路一致地注入生成 SQL 的上下文
+            glossary_repository = BusinessGlossaryRepository(
+                meta_mysql_client_manager.session_factory
+            )
+            glossary_text = render_glossary(
+                await glossary_repository.list(enabled_only=True)
+            )
+
             results = await evaluate(
-                cases, context, dw_mysql_repository, args.limit, args.only, args.role
+                cases,
+                context,
+                dw_mysql_repository,
+                args.limit,
+                args.only,
+                args.role,
+                glossary_text,
             )
     finally:
         await meta_mysql_client_manager.close()

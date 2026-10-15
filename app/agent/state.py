@@ -98,6 +98,7 @@ class DataAgentState(TypedDict):
     table_infos: list[TableInfoState]  # 合并和补齐后的表结构上下文
     metric_infos: list[MetricInfoState]  # 合并后的指标上下文
     metric_caliber_text: str  # 冻结后的指标口径约束文本
+    glossary_text: str  # 注入的业务字典文本（仅解释术语，不覆盖口径/权限）
     clarify_question: str  # 澄清反问文案；非空表示本轮因歧义短路（不进入 SQL 生成）
     clarify_options: list[str]  # 澄清时可选的候选指标
     time_range: TimeRangeState | None  # 解析出的时间区间

@@ -33,6 +33,9 @@ from app.core.tracing import (
 from app.repositories.es.value_es_repository import ValueESRepository
 from app.repositories.mysql.dw.dw_mysql_repository import DWMySQLRepository
 from app.repositories.mysql.meta.audit_log_repository import AuditLogRepository
+from app.repositories.mysql.meta.business_glossary_repository import (
+    BusinessGlossaryRepository,
+)
 from app.repositories.mysql.meta.history_repository import (
     HistoryRepository,
     PreparedRun,
@@ -41,6 +44,7 @@ from app.repositories.mysql.meta.meta_mysql_repository import MetaMySQLRepositor
 from app.repositories.mysql.meta.trace_repository import TraceRepository
 from app.repositories.qdrant.column_qdrant_repository import ColumnQdrantRepository
 from app.repositories.qdrant.metric_qdrant_repository import MetricQdrantRepository
+from app.services.business_glossary_service import render_glossary
 from app.services.session_service import scope_hash
 
 
@@ -110,6 +114,7 @@ class QueryService:
         audit_log_repository: AuditLogRepository,
         trace_repository: TraceRepository,
         history_repository: HistoryRepository | None = None,
+        glossary_repository: BusinessGlossaryRepository | None = None,
     ):
         # MySQL 仓储分别负责元数据补全和真实数仓环境信息读取
         self.meta_mysql_repository = meta_mysql_repository
@@ -130,6 +135,9 @@ class QueryService:
         # 历史仓储：管理会话、查询记录、用户归属
         self.history_repository = history_repository
 
+        # 业务字典仓储：问数前读取启用术语，注入生成 SQL 的上下文
+        self.glossary_repository = glossary_repository
+
     async def query(
         self, prepared: PreparedRun, identity: Identity
     ):
@@ -148,12 +156,23 @@ class QueryService:
         # 从数据库恢复最近 6 条消息
         initial_messages = _decode_context(prepared.context)
 
+        # 业务字典：问数前读取启用术语并渲染成受限文本，注入生成 SQL 的上下文。
+        # 字典仅解释术语，不得覆盖口径/时间/权限；读取失败降级为空串，不影响主链路。
+        glossary_text = ""
+        if self.glossary_repository is not None:
+            try:
+                enabled_terms = await self.glossary_repository.list(enabled_only=True)
+                glossary_text = render_glossary(enabled_terms)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"读取业务字典失败，本次跳过注入：{exc}")
+
         # State 只放会被图节点读写和合并的业务数据，外部工具对象不塞进 State
         state = DataAgentState(
             query=prepared.raw_query,
             user_role=effective_role,
             thread_id=session_id,
             messages=initial_messages,
+            glossary_text=glossary_text,
         )
         # Context 保存本次图执行需要复用的外部依赖，节点通过 runtime.context 读取
         context = DataAgentContext(

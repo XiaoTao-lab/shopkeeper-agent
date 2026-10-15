@@ -25,6 +25,9 @@ from app.core.security import Identity, TokenError, decode_access_token
 from app.repositories.es.value_es_repository import ValueESRepository
 from app.repositories.mysql.dw.dw_mysql_repository import DWMySQLRepository
 from app.repositories.mysql.meta.audit_log_repository import AuditLogRepository
+from app.repositories.mysql.meta.business_glossary_repository import (
+    BusinessGlossaryRepository,
+)
 from app.repositories.mysql.meta.history_repository import HistoryRepository
 from app.repositories.mysql.meta.meta_mysql_repository import MetaMySQLRepository
 from app.repositories.mysql.meta.trace_repository import TraceRepository
@@ -88,6 +91,12 @@ async def get_meta_mysql_repository(
     """基于请求级 Session 创建元数据仓储"""
 
     return MetaMySQLRepository(session)
+
+
+async def get_business_glossary_repository() -> BusinessGlossaryRepository:
+    """业务字典仓储：短事务场景，直接用 session_factory 而非请求级 session"""
+
+    return BusinessGlossaryRepository(meta_mysql_client_manager.session_factory)
 
 
 async def get_audit_log_repository(
@@ -169,6 +178,9 @@ async def get_query_service(
         AuditLogRepository, Depends(get_audit_log_repository)
     ],
     trace_repository: Annotated[TraceRepository, Depends(get_trace_repository)],
+    business_glossary_repository: Annotated[
+        BusinessGlossaryRepository, Depends(get_business_glossary_repository)
+    ],
     session_service: Annotated[SessionService, Depends(get_session_service)],
 ) -> QueryService:
     """组装一次查询所需的业务服务"""
@@ -184,4 +196,5 @@ async def get_query_service(
         audit_log_repository=audit_log_repository,
         trace_repository=trace_repository,
         history_repository=session_service.history,
+        glossary_repository=business_glossary_repository,
     )

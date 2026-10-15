@@ -33,6 +33,10 @@ async def generate_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]
             state.get("metric_caliber_text")
             or "（本次未匹配到已冻结的标准指标口径，请基于用户问题语义生成）"
         )
+        # 业务字典文本（由问数入口注入的启用术语；空则透传空串，由 prompt 自行兜底）
+        glossary_text = state.get("glossary_text") or ""
+        if glossary_text:
+            logger.info(f"业务字典已注入 generate_sql：{len(glossary_text)} 字符")
         # 冻结后的时间范围约束（由 resolve_time 节点产出），为空时说明本次无明确时间范围
         time_range_text = (
             state.get("time_range_text")
@@ -47,6 +51,7 @@ async def generate_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]
             input_variables=[
                 "table_infos",
                 "metric_infos",
+                "glossary_text",
                 "metric_caliber_text",
                 "time_range_text",
                 "date_info",
@@ -68,6 +73,7 @@ async def generate_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]
                     metric_infos, allow_unicode=True, sort_keys=False
                 ),
                 # 口径与时间约束是纯文本块，直接透传，避免被 YAML 转义干扰模型阅读
+                "glossary_text": glossary_text,
                 "metric_caliber_text": metric_caliber_text,
                 "time_range_text": time_range_text,
                 "date_info": yaml.dump(date_info, allow_unicode=True, sort_keys=False),
