@@ -115,3 +115,59 @@ cases:
     question: 统计2025年第一季度华北地区的销量
     gold_sql: SELECT SUM(f.order_quantity) FROM fact_order f JOIN dim_region r ON f.region_id = r.region_id WHERE r.region_name = '华北' AND f.date_id >= 20250101 AND f.date_id < 20250401
     note: 地区 + 销量
+
+  # —— 多表关联（三表 JOIN）——
+  - id: E-21
+    question: 统计2025年第一季度各品牌在各地区的GMV
+    gold_sql: SELECT p.brand, r.region_name, SUM(f.order_amount) FROM fact_order f JOIN dim_product p ON f.product_id = p.product_id JOIN dim_region r ON f.region_id = r.region_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY p.brand, r.region_name
+    note: 三表关联 + 品牌×地区双维度分组
+
+  - id: E-22
+    question: 统计2025年第一季度各会员等级购买的各品类的销量
+    gold_sql: SELECT c.member_level, p.category, SUM(f.order_quantity) FROM fact_order f JOIN dim_customer c ON f.customer_id = c.customer_id JOIN dim_product p ON f.product_id = p.product_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY c.member_level, p.category
+    note: 三表关联 + 会员×品类交叉
+
+  - id: E-23
+    question: 2025年第一季度华东地区男性客户贡献的GMV
+    gold_sql: SELECT SUM(f.order_amount) FROM fact_order f JOIN dim_region r ON f.region_id = r.region_id JOIN dim_customer c ON f.customer_id = c.customer_id WHERE r.region_name = '华东' AND c.gender = '男' AND f.date_id >= 20250101 AND f.date_id < 20250401
+    note: 三表关联 + 双重维过滤
+
+  # —— 分组后过滤 HAVING ——
+  - id: E-24
+    question: 统计2025年第一季度销量超过50件的商品品类
+    gold_sql: SELECT p.category, SUM(f.order_quantity) FROM fact_order f JOIN dim_product p ON f.product_id = p.product_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY p.category HAVING SUM(f.order_quantity) > 50
+    note: GROUP BY + HAVING 过滤
+
+  # —— 复杂条件 ——
+  - id: E-25
+    question: 统计2025年第一季度手机数码和家用电器两个品类的GMV
+    gold_sql: SELECT SUM(f.order_amount) FROM fact_order f JOIN dim_product p ON f.product_id = p.product_id WHERE p.category IN ('手机数码', '家用电器') AND f.date_id >= 20250101 AND f.date_id < 20250401
+    note: IN 列表过滤
+
+  - id: E-26
+    question: 统计2025年第一季度除华东地区以外的GMV
+    gold_sql: SELECT SUM(f.order_amount) FROM fact_order f JOIN dim_region r ON f.region_id = r.region_id WHERE r.region_name != '华东' AND f.date_id >= 20250101 AND f.date_id < 20250401
+    note: 排除条件 !=
+
+  - id: E-27
+    question: 2025年第一季度名字里带牛奶的商品销量是多少
+    gold_sql: SELECT SUM(f.order_quantity) FROM fact_order f JOIN dim_product p ON f.product_id = p.product_id WHERE p.product_name LIKE '%牛奶%' AND f.date_id >= 20250101 AND f.date_id < 20250401
+    note: 模糊匹配 LIKE
+
+  # —— 子查询 ——
+  - id: E-28
+    question: 2025年第一季度订单金额超过平均订单金额的订单有多少个
+    gold_sql: SELECT COUNT(*) FROM fact_order WHERE order_amount > (SELECT AVG(order_amount) FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250401) AND date_id >= 20250101 AND date_id < 20250401
+    note: 标量子查询 + 条件比较
+
+  # —— 多维度多指标交叉 ——
+  - id: E-29
+    question: 统计2025年第一季度各月各地区的订单量和GMV
+    gold_sql: SELECT d.month, r.region_name, COUNT(DISTINCT f.order_id), SUM(f.order_amount) FROM fact_order f JOIN dim_date d ON f.date_id = d.date_id JOIN dim_region r ON f.region_id = r.region_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY d.month, r.region_name
+    note: 月×地区双维度 + 双指标
+
+  # —— 跨月区间 ——
+  - id: E-30
+    question: 统计2025年2月到3月的GMV
+    gold_sql: SELECT SUM(order_amount) FROM fact_order WHERE date_id >= 20250201 AND date_id < 20250401
+    note: 跨月区间过滤

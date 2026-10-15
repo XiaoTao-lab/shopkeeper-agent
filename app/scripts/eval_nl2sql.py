@@ -84,11 +84,16 @@ async def _ex(
 
 
 async def _run_one(
-    case: dict, context: DataAgentContext, dw_repository: DWMySQLRepository
+    case: dict,
+    context: DataAgentContext,
+    dw_repository: DWMySQLRepository,
+    role: str,
 ) -> dict:
     """跑单条用例，返回评测明细"""
 
-    state = DataAgentState(query=case["question"])
+    # 用全量角色（默认 admin）评测“生成 SQL 的准确率”，避免 RLS 把区域过滤
+    # 注入进 SQL 干扰 EM/EX；权限/脱敏的正确性由 run_cases.py 的 RLS/MASK 组单独评测。
+    state = DataAgentState(query=case["question"], user_role=role)
     # ainvoke 拿到的是图执行完的最终 state，可直接读 sql / error
     # 挂了 checkpointer 后必须提供 thread_id；用用例 id 作为会话键，保证各用例历史互不串扰
     config = {"configurable": {"thread_id": f"eval-{case['id']}"}}
@@ -121,6 +126,7 @@ async def evaluate(
     dw_repository: DWMySQLRepository,
     limit: int | None,
     only: str | None,
+    role: str,
 ) -> list[dict]:
     """逐条评测，返回明细列表"""
 
@@ -131,7 +137,7 @@ async def evaluate(
         if limit is not None and len(results) >= limit:
             break
         print(f"… 评测 {case['id']}：{case['question']}")
-        results.append(await _run_one(case, context, dw_repository))
+        results.append(await _run_one(case, context, dw_repository, role))
     return results
 
 
@@ -174,6 +180,12 @@ async def main() -> None:
         "--cases", type=str, default=str(CASES_PATH), help="用例文件路径"
     )
     parser.add_argument("--out", type=str, default=None, help="把明细写成 JSON 文件")
+    parser.add_argument(
+        "--role",
+        type=str,
+        default="admin",
+        help="评测角色（默认 admin 全量可见，避免 RLS 干扰 EM/EX）",
+    )
     args = parser.parse_args()
 
     cases = yaml.safe_load(Path(args.cases).read_text(encoding="utf-8"))["cases"]
@@ -206,7 +218,7 @@ async def main() -> None:
             )
 
             results = await evaluate(
-                cases, context, dw_mysql_repository, args.limit, args.only
+                cases, context, dw_mysql_repository, args.limit, args.only, args.role
             )
     finally:
         await meta_mysql_client_manager.close()
