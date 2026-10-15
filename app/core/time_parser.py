@@ -186,25 +186,51 @@ def parse_time_range_by_rule(query: str, today: date) -> TimeRange | None:
         start = date(year, 3 * (int(m.group(2)) - 1) + 1, 1)
         return _r(start, _add_months(start, 3), "quarter", m.group(0))
 
-    # 6) YYYY年M月（兼容两位年份）
+    # 6) X月到Y月（跨月区间，兼容"2025年2月到3月"与"2月到3月"）
+    # 必须在"YYYY年M月 / M月"单月规则之前匹配，否则会被单月规则抢先命中，
+    # 导致"2月到3月"只解析出"2月"、漏掉整个 3 月。
+    m = re.search(
+        r"(?:(\d{4}|\d{2})\s*年)?\s*(\d{1,2})\s*月\s*"
+        r"(?:到|至|~|－|–|—|\-)\s*"
+        r"(?:(\d{4}|\d{2})\s*年)?\s*(\d{1,2})\s*月",
+        q,
+    )
+    if m:
+        start_month = int(m.group(2))
+        end_month = int(m.group(4))
+        if 1 <= start_month <= 12 and 1 <= end_month <= 12:
+            start_year = _full_year(m.group(1)) if m.group(1) else today.year
+            if m.group(3):
+                end_year = _full_year(m.group(3))
+            else:
+                end_year = start_year
+                # 结束月早于起始月视为跨年：如"12月到1月" → 明年 1 月
+                if end_month < start_month:
+                    end_year += 1
+            start = date(start_year, start_month, 1)
+            # 右边界取"结束月的下个月初"，即包含整个结束月
+            end = _add_months(date(end_year, end_month, 1), 1)
+            return _r(start, end, "month", m.group(0))
+
+    # 7) YYYY年M月（兼容两位年份）
     m = re.search(r"(\d{4}|\d{2})\s*年\s*(\d{1,2})\s*月", q)
     if m:
         start = date(_full_year(m.group(1)), int(m.group(2)), 1)
         return _r(start, _add_months(start, 1), "month", m.group(0))
 
-    # 7) YYYY-MM / YYYY/MM
+    # 8) YYYY-MM / YYYY/MM
     m = re.search(r"(\d{4})\s*[-/]\s*(\d{1,2})(?!\d)", q)
     if m:
         start = date(int(m.group(1)), int(m.group(2)), 1)
         return _r(start, _add_months(start, 1), "month", m.group(0))
 
-    # 8) YYYY年（兼容两位年份，如"25年"）
+    # 9) YYYY年（兼容两位年份，如"25年"）
     m = re.search(r"(\d{4}|\d{2})\s*年", q)
     if m:
         year = _full_year(m.group(1))
         return _r(date(year, 1, 1), date(year + 1, 1, 1), "year", m.group(0))
 
-    # 9) 本季度 / 上季度
+    # 10) 本季度 / 上季度
     m = re.search(r"(本|这个|这|当)\s*季度", q)
     if m:
         return _r(this_quarter, _add_months(this_quarter, 3), "quarter", m.group(0))
@@ -214,7 +240,7 @@ def parse_time_range_by_rule(query: str, today: date) -> TimeRange | None:
             _add_months(this_quarter, -3), this_quarter, "quarter", m.group(0)
         )
 
-    # 10) 本月 / 上月
+    # 11) 本月 / 上月
     m = re.search(r"(本|这个|这|当)\s*个?\s*月(?:份)?", q)
     if m:
         return _r(this_month, _add_months(this_month, 1), "month", m.group(0))
@@ -222,7 +248,7 @@ def parse_time_range_by_rule(query: str, today: date) -> TimeRange | None:
     if m:
         return _r(_add_months(this_month, -1), this_month, "month", m.group(0))
 
-    # 11) 本周 / 上周（周一为一周开始）
+    # 12) 本周 / 上周（周一为一周开始）
     monday = today - timedelta(days=today.weekday())
     m = re.search(r"(本|这个|这)\s*个?\s*(?:周|星期)", q)
     if m:
@@ -231,13 +257,13 @@ def parse_time_range_by_rule(query: str, today: date) -> TimeRange | None:
     if m:
         return _r(monday - timedelta(days=7), monday, "week", m.group(0))
 
-    # 12) 今年 / 去年
+    # 13) 今年 / 去年
     if re.search(r"今年|本年|本年度", q):
         return _r(this_year, date(today.year + 1, 1, 1), "year", "今年")
     if re.search(r"去年|上年|上一年|前年", q):
         return _r(date(today.year - 1, 1, 1), this_year, "year", "去年")
 
-    # 13) 今天 / 昨天 / 前天
+    # 14) 今天 / 昨天 / 前天
     if re.search(r"今天|今日|本日", q):
         return _r(today, today + timedelta(days=1), "day", "今天")
     if re.search(r"昨天|昨日", q):
@@ -245,7 +271,7 @@ def parse_time_range_by_rule(query: str, today: date) -> TimeRange | None:
     if re.search(r"前天", q):
         return _r(today - timedelta(days=2), today - timedelta(days=1), "day", "前天")
 
-    # 14) M月（默认今年）
+    # 15) M月（默认今年）
     m = re.search(r"(\d{1,2})\s*月", q)
     if m:
         month = int(m.group(1))
