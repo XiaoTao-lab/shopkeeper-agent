@@ -189,13 +189,13 @@ DEV_LOGIN_PASSWORD=demo123
 - `JWT_SECRET`：**鉴权签名密钥，必须配置**。生成方式：`python -c "import secrets; print(secrets.token_urlsafe(48))"`。缺失或短于 32 字符时服务直接拒绝启动。
 - `DEV_LOGIN_PASSWORD`：演示用登录口令（见下文「鉴权（JWT）」）。生产接真实登录后可删除。
 
-默认配置使用兼容 OpenAI 接口的硅基流动服务：
+默认配置使用兼容 OpenAI 接口的阿里云百炼（DashScope）服务：
 
 ```yaml
 llm:
-    model_name: Pro/zai-org/GLM-5.1
+    model_name: qwen3.7-flash  # 具体模型名以 conf/app_config.yaml 为准
     api_key: ${oc.env:LLM_API_KEY}
-    base_url: https://api.siliconflow.cn/v1
+    base_url: https://<your-instance>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
 ```
 
 如需使用其他兼容 OpenAI API 的模型平台，修改 [conf/app_config.yaml](conf/app_config.yaml) 中的 `model_name` 和 `base_url`。
@@ -220,7 +220,7 @@ docker compose -f docker/docker-compose.yaml up -d
 
 | 服务          | 端口   |
 | ------------- | ------ |
-| MySQL         | `3306` |
+| MySQL         | `3307` |
 | Elasticsearch | `9200` |
 | Kibana        | `5601` |
 | Qdrant        | `6333` |
@@ -340,7 +340,7 @@ pnpm dev
 
 ```bash
 cd frontend
-cp .env .env
+cp .env.example .env
 ```
 
 ```bash
@@ -383,16 +383,31 @@ git checkout main
 
 > 本项目基于尚硅谷「大模型智能体掌柜问数」项目，并在此基础上整理完善。
 
+## 🎯 质量评测
+
+项目内置一套可复跑的离线评测，覆盖 30 条问数样例（简单聚合 / 多表关联 / 时间表达 / 条件过滤 / 子查询 / 多维度交叉等 7 类），
+用 EM（SQL 精确匹配）与 EX（执行结果一致）两个口径衡量链路质量：
+
+- **EX = 90.0%**（27/30，qwen3.8-flash 评测；EM 33.3% 多因"写法不同但结果正确"）
+- **138 项离线规则测试全通过**（SQL 沙箱、RLS、列脱敏、澄清反问、图表规划、链路追踪等）
+- **单元测试全通过**（`uv run pytest`）
+
+```bash
+uv run python -m app.scripts.eval_nl2sql --out reports/nl2sql_eval.json  # 全量问数评测
+uv run python -m app.scripts.run_cases                                      # 138 项离线规则测试
+uv run pytest                                                               # 单元测试
+```
+
+> 评测数据真实可复现、不编造准确率；失败归因与改进方向见 [reports/nl2sql_eval_report.md](reports/nl2sql_eval_report.md)。
+
 ## 🚧 能力边界
 
-这套项目主要关注智能问数的学习流程，不刻意覆盖生产治理能力，例如：
+本项目在"可讲清、可演示、可复现"的工程闭环上做了取舍，以下能力**刻意未覆盖**（属生产化范畴）：
 
-- 用户登录、角色权限和数据权限控制
-- 多租户隔离
-- SQL 安全审计和执行白名单
-- 查询缓存、限流和性能治理
-- 系统化评测集与自动化回归评测
-- 监控告警、链路追踪平台和灰度发布
-- 更复杂的多轮问数记忆、追问改写和会话管理
+- 多租户隔离与真实用户体系（当前为演示账号 + JWT，未接 SSO / LDAP）
+- 查询限流、缓存与多 worker 分布式会话恢复（当前为单实例 + MySQL 持久化）
+- 监控告警、灰度发布与链路追踪平台（当前为进程内 trace 与日志）
+- BI 报表、复杂可视化与后台管理系统
 
-这些能力适合在基础流程跑通之后继续扩展。`shopkeeper-agent` 更适合承担一个清晰角色：先把智能问数最关键、最必要、最值得学习的工程链路讲清楚、跑起来，并为后续扩展企业级能力打基础。
+当前更聚焦把"检索增强 → SQL 生成校验 → 权限过滤 → 结果快照"这条主线做扎实，
+用可复跑的评测集（见下文「质量评测」）证明链路质量，而非堆砌生产特性。
