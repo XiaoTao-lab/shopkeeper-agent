@@ -1,0 +1,222 @@
+[
+  {
+    "id": "E-01",
+    "question": "统计2025年第一季度的GMV",
+    "note": "单指标聚合 + 绝对季度",
+    "gold_sql": "SELECT SUM(order_amount) FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250401",
+    "gen_sql": "SELECT SUM(fact_order.order_amount) AS GMV FROM fact_order WHERE fact_order.date_id >= 20250101 AND fact_order.date_id < 20250401 LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  },
+  {
+    "id": "E-02",
+    "question": "统计2025年第一季度的订单量",
+    "note": "去重计数口径",
+    "gold_sql": "SELECT COUNT(DISTINCT order_id) FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250401",
+    "gen_sql": "SELECT COUNT(DISTINCT fact_order.order_id) AS 订单量 FROM fact_order WHERE fact_order.date_id >= 20250101 AND fact_order.date_id < 20250401 LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  },
+  {
+    "id": "E-03",
+    "question": "统计2025年第一季度的销量",
+    "note": "销量=件数求和",
+    "gold_sql": "SELECT SUM(order_quantity) FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250401",
+    "gen_sql": "SELECT SUM(fact_order.order_quantity) AS 销量 FROM fact_order WHERE fact_order.date_id >= 20250101 AND fact_order.date_id < 20250401 LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  },
+  {
+    "id": "E-04",
+    "question": "2025年第一季度的客单价是多少",
+    "note": "客单价=AOV",
+    "gold_sql": "SELECT AVG(order_amount) FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250401",
+    "gen_sql": "SELECT AVG(order_amount) AS 客单价 FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250401 LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  },
+  {
+    "id": "E-05",
+    "question": "2025年第一季度有多少个下单客户",
+    "note": "下单客户数=去重客户",
+    "gold_sql": "SELECT COUNT(DISTINCT customer_id) FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250401",
+    "gen_sql": "SELECT COUNT(DISTINCT fact_order.customer_id) AS 下单客户数 FROM fact_order WHERE fact_order.date_id >= 20250101 AND fact_order.date_id < 20250401 LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  },
+  {
+    "id": "E-06",
+    "question": "2025年1月的GMV",
+    "note": "绝对月份",
+    "gold_sql": "SELECT SUM(order_amount) FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250201",
+    "gen_sql": "SELECT SUM(order_amount) AS GMV FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250201 LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  },
+  {
+    "id": "E-07",
+    "question": "统计2025年第一季度每个月的GMV",
+    "note": "按月份分组",
+    "gold_sql": "SELECT d.month, SUM(f.order_amount) FROM fact_order f JOIN dim_date d ON f.date_id = d.date_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY d.month",
+    "gen_sql": "SELECT dim_date.month AS 月份, SUM(fact_order.order_amount) AS GMV FROM fact_order JOIN dim_date ON fact_order.date_id = dim_date.date_id WHERE fact_order.date_id >= 20250101 AND fact_order.date_id < 20250401 GROUP BY dim_date.month ORDER BY dim_date.month LIMIT 1000",
+    "error": null,
+    "em": false,
+    "ex": true,
+    "ex_detail": "gold 3 行 / gen 3 行"
+  },
+  {
+    "id": "E-08",
+    "question": "统计2025年第一季度各大区的GMV，按GMV从高到低排序",
+    "note": "单维分组 + 排序",
+    "gold_sql": "SELECT r.region_name, SUM(f.order_amount) FROM fact_order f JOIN dim_region r ON f.region_id = r.region_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY r.region_name ORDER BY SUM(f.order_amount) DESC",
+    "gen_sql": "SELECT dim_region.region_name AS 大区, SUM(fact_order.order_amount) AS GMV FROM fact_order JOIN dim_region ON fact_order.region_id = dim_region.region_id WHERE fact_order.date_id >= 20250101 AND fact_order.date_id < 20250401 GROUP BY dim_region.region_name ORDER BY GMV DESC LIMIT 1000",
+    "error": null,
+    "em": false,
+    "ex": true,
+    "ex_detail": "gold 5 行 / gen 5 行"
+  },
+  {
+    "id": "E-09",
+    "question": "统计2025年3月各商品品类的销售额",
+    "note": "品类分组 + 月份过滤",
+    "gold_sql": "SELECT p.category, SUM(f.order_amount) FROM fact_order f JOIN dim_product p ON f.product_id = p.product_id WHERE f.date_id >= 20250301 AND f.date_id < 20250401 GROUP BY p.category",
+    "gen_sql": "SELECT dp.category AS 商品品类, SUM(fo.order_amount) AS 销售额 FROM fact_order AS fo JOIN dim_product AS dp ON fo.product_id = dp.product_id WHERE fo.date_id >= 20250301 AND fo.date_id < 20250401 GROUP BY dp.category LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 6 行 / gen 6 行"
+  },
+  {
+    "id": "E-10",
+    "question": "查询2025年第一季度销售额最高的前5个商品",
+    "note": "分组 + TopN",
+    "gold_sql": "SELECT p.product_name, SUM(f.order_amount) FROM fact_order f JOIN dim_product p ON f.product_id = p.product_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY p.product_name ORDER BY SUM(f.order_amount) DESC LIMIT 5",
+    "gen_sql": "SELECT p.product_name AS 商品名称, SUM(o.order_amount) AS 销售额 FROM fact_order AS o JOIN dim_product AS p ON o.product_id = p.product_id WHERE o.date_id >= 20250101 AND o.date_id < 20250401 GROUP BY p.product_id, p.product_name ORDER BY 销售额 DESC LIMIT 5",
+    "error": null,
+    "em": false,
+    "ex": true,
+    "ex_detail": "gold 5 行 / gen 5 行"
+  },
+  {
+    "id": "E-11",
+    "question": "按会员等级统计2025年第一季度的订单量",
+    "note": "会员等级分组",
+    "gold_sql": "SELECT c.member_level, COUNT(DISTINCT f.order_id) FROM fact_order f JOIN dim_customer c ON f.customer_id = c.customer_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY c.member_level",
+    "gen_sql": "SELECT dc.member_level AS 会员等级, COUNT(DISTINCT fo.order_id) AS 订单量 FROM fact_order AS fo JOIN dim_customer AS dc ON fo.customer_id = dc.customer_id WHERE fo.date_id >= 20250101 AND fo.date_id < 20250401 GROUP BY dc.member_level LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 4 行 / gen 4 行"
+  },
+  {
+    "id": "E-12",
+    "question": "2025年第一季度各品牌的销量",
+    "note": "品牌分组 + 销量",
+    "gold_sql": "SELECT p.brand, SUM(f.order_quantity) FROM fact_order f JOIN dim_product p ON f.product_id = p.product_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY p.brand",
+    "gen_sql": "SELECT p.brand AS 品牌, SUM(f.order_quantity) AS 销量 FROM fact_order AS f JOIN dim_product AS p ON f.product_id = p.product_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY p.brand ORDER BY 销量 DESC LIMIT 1000",
+    "error": null,
+    "em": false,
+    "ex": true,
+    "ex_detail": "gold 15 行 / gen 15 行"
+  },
+  {
+    "id": "E-13",
+    "question": "统计华东地区2025年第一季度的GMV",
+    "note": "维表等值过滤",
+    "gold_sql": "SELECT SUM(f.order_amount) FROM fact_order f JOIN dim_region r ON f.region_id = r.region_id WHERE r.region_name = '华东' AND f.date_id >= 20250101 AND f.date_id < 20250401",
+    "gen_sql": "SELECT SUM(fo.order_amount) AS GMV FROM fact_order AS fo JOIN dim_region AS dr ON fo.region_id = dr.region_id WHERE dr.region_name = '华东' AND fo.date_id >= 20250101 AND fo.date_id < 20250401 LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  },
+  {
+    "id": "E-14",
+    "question": "2025年第一季度男性和女性客户分别贡献了多少GMV",
+    "note": "性别分组",
+    "gold_sql": "SELECT c.gender, SUM(f.order_amount) FROM fact_order f JOIN dim_customer c ON f.customer_id = c.customer_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY c.gender",
+    "gen_sql": "SELECT c.gender AS 性别, SUM(o.order_amount) AS GMV FROM fact_order AS o JOIN dim_customer AS c ON o.customer_id = c.customer_id WHERE o.date_id >= 20250101 AND o.date_id < 20250401 GROUP BY c.gender LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 2 行 / gen 2 行"
+  },
+  {
+    "id": "E-15",
+    "question": "统计2025年3月华东地区的GMV",
+    "note": "月份 + 地区双重过滤",
+    "gold_sql": "SELECT SUM(f.order_amount) FROM fact_order f JOIN dim_region r ON f.region_id = r.region_id WHERE r.region_name = '华东' AND f.date_id >= 20250301 AND f.date_id < 20250401",
+    "gen_sql": "SELECT SUM(fo.order_amount) AS GMV FROM fact_order AS fo JOIN dim_region AS dr ON fo.region_id = dr.region_id WHERE dr.region_name = '华东' AND fo.date_id >= 20250301 AND fo.date_id < 20250401 LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  },
+  {
+    "id": "E-16",
+    "question": "2025年第一季度的GMV和订单量分别是多少",
+    "note": "同一行多指标",
+    "gold_sql": "SELECT SUM(order_amount), COUNT(DISTINCT order_id) FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250401",
+    "gen_sql": "SELECT SUM(order_amount) AS GMV, COUNT(DISTINCT order_id) AS 订单量 FROM fact_order WHERE date_id >= 20250101 AND date_id < 20250401 LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  },
+  {
+    "id": "E-17",
+    "question": "2025年第一季度各地区的订单量，按订单量从高到低排序",
+    "note": "地区分组 + 计数排序",
+    "gold_sql": "SELECT r.region_name, COUNT(DISTINCT f.order_id) FROM fact_order f JOIN dim_region r ON f.region_id = r.region_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY r.region_name ORDER BY COUNT(DISTINCT f.order_id) DESC",
+    "gen_sql": "SELECT dr.region_name AS 地区, COUNT(DISTINCT fo.order_id) AS 订单量 FROM fact_order AS fo JOIN dim_region AS dr ON fo.region_id = dr.region_id WHERE fo.date_id >= 20250101 AND fo.date_id < 20250401 GROUP BY dr.region_name ORDER BY 订单量 DESC LIMIT 1000",
+    "error": null,
+    "em": false,
+    "ex": true,
+    "ex_detail": "gold 5 行 / gen 5 行"
+  },
+  {
+    "id": "E-18",
+    "question": "查询2025年第一季度销量最高的商品",
+    "note": "TopN=1",
+    "gold_sql": "SELECT p.product_name, SUM(f.order_quantity) FROM fact_order f JOIN dim_product p ON f.product_id = p.product_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY p.product_name ORDER BY SUM(f.order_quantity) DESC LIMIT 1",
+    "gen_sql": "SELECT p.product_name AS 商品名称, SUM(f.order_quantity) AS 销量 FROM fact_order AS f JOIN dim_product AS p ON f.product_id = p.product_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY p.product_id, p.product_name ORDER BY 销量 DESC LIMIT 1",
+    "error": null,
+    "em": false,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  },
+  {
+    "id": "E-19",
+    "question": "2025年第一季度各商品类别的平均订单金额",
+    "note": "分组 + 均值",
+    "gold_sql": "SELECT p.category, AVG(f.order_amount) FROM fact_order f JOIN dim_product p ON f.product_id = p.product_id WHERE f.date_id >= 20250101 AND f.date_id < 20250401 GROUP BY p.category",
+    "gen_sql": "SELECT p.category AS 商品类别, AVG(o.order_amount) AS 平均订单金额 FROM fact_order AS o JOIN dim_product AS p ON o.product_id = p.product_id WHERE o.date_id >= 20250101 AND o.date_id < 20250401 GROUP BY p.category LIMIT 1000",
+    "error": null,
+    "em": true,
+    "ex": true,
+    "ex_detail": "gold 6 行 / gen 6 行"
+  },
+  {
+    "id": "E-20",
+    "question": "统计2025年第一季度华北地区的销量",
+    "note": "地区 + 销量",
+    "gold_sql": "SELECT SUM(f.order_quantity) FROM fact_order f JOIN dim_region r ON f.region_id = r.region_id WHERE r.region_name = '华北' AND f.date_id >= 20250101 AND f.date_id < 20250401",
+    "gen_sql": "SELECT SUM(fo.order_quantity) AS 销量 FROM fact_order AS fo JOIN dim_region AS dr ON fo.region_id = dr.region_id WHERE fo.date_id >= 20250101 AND fo.date_id < 20250401 AND dr.region_name = '华北' LIMIT 1000",
+    "error": null,
+    "em": false,
+    "ex": true,
+    "ex_detail": "gold 1 行 / gen 1 行"
+  }
+]

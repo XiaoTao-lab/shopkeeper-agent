@@ -74,3 +74,7 @@ agent_output.log
 logs/
 $null
 .claude/
+
+# 临时探查脚本（引用已废弃的 X-User-Role 越权 header）与个人规划草稿
+app/scripts/_probe.py
+docs/superpowers/

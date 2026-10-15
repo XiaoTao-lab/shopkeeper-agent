@@ -51,6 +51,12 @@
     - 不停留在 Prompt 设计，而是会真实生成 SQL、执行查询，并以流式方式返回结果。
 - **工程化后端结构清晰**
     - 基于 `FastAPI + LangGraph + Repository + Client Manager` 组织配置、客户端、仓储层、服务层与智能体流程，便于维护和扩展。
+- **可靠的会话与断流恢复**
+    - 查询先在 Meta MySQL 预登记，再通过 SSE 推送过程和终态；`client_request_id` 保证重复提交不重复执行，刷新或断流后可按同一 run 恢复结果。
+- **权限、结果快照与安全导出**
+    - JWT 身份决定 RLS 和列脱敏范围；历史、CSV 和表格均基于已脱敏的结果快照，不重新执行 SQL，也不会泄露原始数据。
+- **面向业务迭代的语义治理**
+    - 业务字典、收藏、纠错反馈和离线评测会逐步把人工经验沉淀为可回归的问数质量资产。
 - **不仅有实战代码，还有完整配套教程文档**
     - 项目配有一套系统化、持续更新、完全免费的教程讲义，适合按章节从数仓基础、元数据知识库到问数智能体流程逐步学习。
 - **兼顾学习价值与可扩展性**
@@ -73,6 +79,32 @@
 | ---------------- | ------------------------------------------------------------------------ | -------------------------------------------- |
 | 元数据知识库构建 | 抽取教学数仓中的表、字段、指标和字段取值，写入结构化库、向量库和全文索引 | `MySQL` / `Qdrant` / `Elasticsearch` / `TEI` |
 | 自然语言问数     | 基于用户问题完成召回、上下文整理、SQL 生成校验执行，并把过程流式返回前端 | `LangGraph` / `FastAPI` / `SSE` / `React`    |
+
+### 面向演示的查询数据流
+
+```mermaid
+sequenceDiagram
+    participant U as 登录用户
+    participant W as React 前端
+    participant A as FastAPI
+    participant H as Meta MySQL
+    participant G as LangGraph
+    participant D as 教学数仓
+
+    U->>W: 提交自然语言问题
+    W->>A: POST /api/query + JWT + client_request_id
+    A->>H: 预登记 session / query_run
+    A-->>W: SSE meta(thread_id, run_id)
+    A->>G: 召回、改写、生成与校验 SQL
+    G->>D: 受 RLS 约束的只读查询
+    G-->>A: 结果快照 / 澄清 / 错误
+    A->>H: 提交终态并释放会话占用
+    A-->>W: SSE terminal + done
+    W->>A: 历史、状态或 CSV 请求
+    A->>H: 校验 owner、scope 与快照状态
+```
+
+演示时按“登录 → 首问 → 追问 → 刷新恢复 → 排序/CSV → 切换账号”的顺序操作，能在几分钟内说明模型链路、权限边界与异常恢复。
 
 ![电商问数查询结果页：LangGraph 执行流程、SQL 校验执行和查询结果表格](docs/images/shopkeeper-agent-query-result.jpg)
 
@@ -148,10 +180,14 @@ uv sync
 ```bash
 LLM_API_KEY=your_real_api_key
 MYSQL_PASSWORD=your_mysql_password
+JWT_SECRET=your_random_secret_at_least_32_chars
+DEV_LOGIN_PASSWORD=demo123
 ```
 
 - `LLM_API_KEY`：大模型平台的真实密钥，供 `conf/app_config.yaml` 中的 `${oc.env:LLM_API_KEY}` 解析。
 - `MYSQL_PASSWORD`：MySQL 密码，需与 `docker/.env` 中的 `MYSQL_PASSWORD` 保持一致（Docker Compose 从 `docker/.env` 读取，见下一步）。
+- `JWT_SECRET`：**鉴权签名密钥，必须配置**。生成方式：`python -c "import secrets; print(secrets.token_urlsafe(48))"`。缺失或短于 32 字符时服务直接拒绝启动。
+- `DEV_LOGIN_PASSWORD`：演示用登录口令（见下文「鉴权（JWT）」）。生产接真实登录后可删除。
 
 默认配置使用兼容 OpenAI 接口的硅基流动服务：
 
@@ -192,6 +228,17 @@ docker compose -f docker/docker-compose.yaml up -d
 
 > `docker/mysql/meta.sql` 和 `docker/mysql/dw.sql` 会在 MySQL 容器首次启动时自动初始化元数据库和教学数仓。
 
+### 6.1 初始化会话历史表
+
+首次创建过数据卷的 MySQL 不会再次执行初始化目录中的新 SQL 文件。启动服务后，执行一次会话迁移：
+
+```powershell
+Get-Content -Raw docker/mysql/migration_add_chat_history.sql |
+  docker exec -i mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" meta'
+```
+
+迁移只新增 `chat_session` 与 `query_run`，不会修改教学数仓表。重复执行是安全的。
+
 ### 7. 构建元数据知识库
 
 ```bash
@@ -209,24 +256,77 @@ uv run fastapi dev main.py
 后端接口：
 
 ```text
-POST http://127.0.0.1:8000/api/query
+POST http://127.0.0.1:8000/api/auth/token   # 用账号 + 口令换取访问令牌
+GET  http://127.0.0.1:8000/api/auth/me      # 查看当前令牌对应的身份
+POST http://127.0.0.1:8000/api/query        # 问数（必须携带令牌）
+GET  http://127.0.0.1:8000/api/sessions      # 当前账号的会话列表
+GET  http://127.0.0.1:8000/api/sessions/{id}/runs
+GET  http://127.0.0.1:8000/api/sessions/{id}/runs/{run_id}/export?format=csv
+GET  http://127.0.0.1:8000/health
 ```
 
-请求示例：
+### 鉴权（JWT）
 
-```json
-{
-    "query": "统计华北地区的销售总额"
-}
+`/api/query` 必须携带访问令牌。**角色由服务端决定，客户端无法指定**——
+请求体里没有角色字段，服务端按账号查表得出角色，写进令牌并用 `JWT_SECRET` 签名。
+
+```bash
+# 1. 换取令牌
+TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"username":"boss","password":"demo123"}' \
+  | python -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+
+# 2. 带上令牌问数
+curl -N -X POST http://127.0.0.1:8000/api/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"query":"统计华北地区的销售总额"}'
 ```
+
+演示账号见 `conf/app_config.yaml` 的 `auth.dev_users`，共用口令取自环境变量 `DEV_LOGIN_PASSWORD`：
+
+| 账号      | 角色           | 数据范围                     |
+| --------- | -------------- | ---------------------------- |
+| `boss`    | `admin`        | 全量可见，不脱敏             |
+| `east`    | `east_manager` | 仅华东（R002 / R005）        |
+| `analyst` | `analyst`      | 全量可见，`customer_name` 脱敏 |
+| `guest`   | `guest`        | 仅华东，且 `customer_name` 脱敏 |
+
+失败一律 401（缺失 / 过期 / 签名不符 / 角色已失效），且**不区分具体原因**，
+避免给攻击者反馈信号；真实原因只写进服务端日志。
+
+> ⚠️ **生产环境必须把 `auth.dev_login_enable` 置为 `false`**，并把 `/api/auth/token`
+> 换成对接公司 SSO / LDAP，或改查用户表并校验密码哈希（argon2 / bcrypt）。
+> 下游解析身份的 `get_current_identity` 一行都不用改。
+>
+> `JWT_SECRET` 只放在 `.env`（已 gitignore）；缺失或短于 32 字符时服务**直接拒绝启动**。
+> 项目刻意**不提供"关闭鉴权"的开关**——配置里一个 `false` 就能把系统敞开，
+> 是比漏洞本身更常见的事故来源。
 
 SSE 消息类型：
 
 | 类型       | 含义         |
 | ---------- | ------------ |
+| `meta`     | 会话 id、run id |
 | `progress` | 节点执行进度 |
 | `result`   | 最终查询结果 |
+| `clarify`  | 澄清反问     |
 | `error`    | 全局异常消息 |
+| `done`     | 本轮已持久化的终态、run id 与 outcome |
+
+`meta` 同时携带 `thread_id` 和 `run_id`。每次请求应带上 UUID 格式的
+`client_request_id`：网络断开或首条 SSE 丢失时，客户端用同一个请求键查询
+`/api/sessions/{id}/runs/by-request/{client_request_id}`，不会重复执行问数。
+
+### 会话历史、排序与 CSV
+
+前端左侧可新建、切换、改名和软删除会话。历史结果来自 Meta MySQL 中已保存的
+脱敏快照；刷新页面或后端重启后可以继续查看，权限范围变化时旧会话会被服务端拒绝。
+
+结果表支持按列升序、降序和恢复原顺序，并可选择每页 20 / 50 / 100 行。金额使用
+十进制字符串排序，不转换为 JavaScript 浮点数。点击结果气泡右上角的“导出 CSV”会
+下载本次查询保存的全部展示行，保持列顺序和脱敏结果，不会重新执行 SQL。
 
 ### 9. 启动前端
 
