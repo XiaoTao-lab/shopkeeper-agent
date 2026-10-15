@@ -86,6 +86,14 @@ graph_builder.add_node("run_sql", traced("run_sql", run_sql))
 graph_builder.add_node("finalize", finalize)
 
 
+def _route_after_rewrite(state: DataAgentState):
+    """改写后的分支：无法理解本轮问题（改写节点已下发澄清）则短路收尾，
+    否则正常进入意图安全校验"""
+    if state.get("clarify_question"):
+        return "finalize"
+    return "check_intent"
+
+
 def _route_after_clarify(state: DataAgentState):
     """澄清检测后的分支：命中歧义则短路收尾，否则并行进入表/指标两个过滤节点"""
     if state.get("clarify_question"):
@@ -93,9 +101,14 @@ def _route_after_clarify(state: DataAgentState):
     return ["filter_table", "filter_metric"]
 
 
-# 入口先做多轮问题改写：结合历史把口语问题补全成独立问题，再进入意图安全校验
+# 入口先做多轮问题改写：结合历史把口语问题补全成独立问题，再进入意图安全校验；
+# 改写节点判断"无法理解"时已下发澄清反问，这里短路进 finalize 留痕后结束
 graph_builder.add_edge(START, "rewrite_query")
-graph_builder.add_edge("rewrite_query", "check_intent")
+graph_builder.add_conditional_edges(
+    source="rewrite_query",
+    path=_route_after_rewrite,
+    path_map={"check_intent": "check_intent", "finalize": "finalize"},
+)
 
 # 命中写操作意图直接短路到收尾，正常查询才进入关键词抽取
 # 注意：短路也必须经过 finalize——否则澄清 / 拦截这类"没查到数"的场景不会留下
@@ -176,7 +189,13 @@ _ALLOWED_MSGPACK_MODULES = [
 checkpointer = InMemorySaver(
     serde=JsonPlusSerializer(allowed_msgpack_modules=_ALLOWED_MSGPACK_MODULES)
 )
-graph = graph_builder.compile(checkpointer=checkpointer)
+def build_graph(checkpointer=None):
+    """API uses no checkpointer; offline scripts may explicitly request memory history."""
+    return graph_builder.compile(checkpointer=checkpointer)
+
+
+graph = build_graph(checkpointer=checkpointer)
+api_graph = build_graph()
 
 # print(graph.get_graph().draw_mermaid())
 

@@ -48,6 +48,14 @@ class DWMySQLRepository:
         sql = f"explain {sql}"
         await self.session.execute(text(sql))
 
+    async def run_with_columns(self, sql: str) -> tuple[list[str], list[dict]]:
+        """Preserve projection order before dict conversion; reject duplicate aliases."""
+        result = await self.session.execute(text(sql))
+        columns = list(result.keys())
+        if len(set(columns)) != len(columns):
+            raise ValueError("查询结果存在重复列名，请为每个结果列设置唯一别名")
+        return columns, [dict(row) for row in result.mappings().fetchall()]
+
     async def run(self, sql: str) -> list[dict]:
         """执行最终 SQL，并把 SQLAlchemy 行对象转换成前端更易消费的字典列表"""
         result = await self.session.execute(text(sql))

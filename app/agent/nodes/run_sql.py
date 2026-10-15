@@ -27,6 +27,7 @@ from app.core.chart_planner import plan_chart
 from app.core.log import logger
 from app.core.mask import mask_rows
 from app.core.result_guard import build_empty_notice
+from app.core.result_snapshot import build_snapshot
 from app.core.result_summary import build_result_summary
 
 
@@ -63,7 +64,7 @@ async def run_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]):
     """执行 SQL 并产出最终问数结果"""
 
     writer = runtime.stream_writer
-    step = "执行SQL"
+    step = "执行 SQL"
     writer({"type": "progress", "step": step, "status": "running"})
 
     try:
@@ -73,8 +74,9 @@ async def run_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]):
         dw_mysql_repository = runtime.context["dw_mysql_repository"]
 
         # 真实数据库访问统一封装在仓储层，节点只负责从状态取 SQL 并触发执行
-        result = await dw_mysql_repository.run(sql)
-        logger.info(f"SQL执行结果：{result}")
+        # run_with_columns 返回有序列名和原生 Python 值，保持查询投影顺序
+        columns, result = await dw_mysql_repository.run_with_columns(sql)
+        logger.info(f"SQL 执行完成：{len(result)} 行")
 
         # 列级脱敏：按当前角色对命中字段打码，脱敏只影响返回给用户的副本，
         # 不影响"到底查到多少行"的事实
@@ -83,30 +85,35 @@ async def run_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]):
         masked = mask_rows(result, role_cfg.mask_columns)
         display_result = masked.rows
 
-        event: dict = {"type": "result", "data": display_result}
+        # 构建结构化快照：有序列、类型推断、预算检查
+        snapshot = build_snapshot(
+            columns=columns,
+            rows=display_result,
+            masked_columns=masked.masked_columns,
+        )
 
         # 空结果（0 行，或聚合落在空集上得到全 None）单独给出提示，
         # 避免前端把 NULL 渲染成一个 '-' 让人误以为功能坏了
         notice = build_empty_notice(display_result, state.get("time_range"))
         if notice:
             logger.info(f"空结果提示：{notice}")
-            event["empty"] = True
-            event["message"] = notice
+            snapshot["empty"] = True
+            snapshot["message"] = notice
         else:
             # 有数据时给一句确定性结论（极值/组数），纯规则生成，与表格严格一致
             summary = build_result_summary(display_result)
             if summary:
-                event["summary"] = summary
+                snapshot["summary"] = summary
 
             # 再判断该配什么图（同样是纯规则，不调大模型）。
             # 没有合适图型时不下发 chart 字段，前端自然不会渲染图表。
             chart = plan_chart(display_result, state.get("metric_infos"))
             if chart:
-                event["chart"] = chart
+                snapshot["chart"] = chart
 
         # 无论有没有数据，都附带可解释信息与权限提示
-        event["explain"] = _build_explain(state, sql)
-        event["permission"] = {
+        snapshot["explain"] = _build_explain(state, sql)
+        snapshot["permission"] = {
             "role": role_name,
             "rls_applied": bool(state.get("rls_applied")),
             "region_ids": state.get("rls_region_ids") or [],
@@ -114,7 +121,7 @@ async def run_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]):
         }
 
         writer({"type": "progress", "step": step, "status": "success"})
-        writer(event)
+        writer(snapshot)
 
         # 把本轮 SQL 作为 AI 消息写回对话历史（add_messages 追加），
         # 供下一轮"多轮问题改写"理解上一轮到底查了什么指标、维度和时间。
