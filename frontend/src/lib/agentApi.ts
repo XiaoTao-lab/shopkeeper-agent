@@ -289,3 +289,64 @@ function parseSseChunk(chunk: string): AgentEvent | null {
     };
   }
 }
+
+export type GlossaryTerm = {
+  id: string;
+  term: string;
+  definition: string;
+  aliases: string[];
+  guidance: string;
+  enabled: boolean;
+  updated_by: string;
+};
+
+export type GlossaryInput = {
+  term: string;
+  definition: string;
+  aliases: string[];
+  guidance: string;
+};
+
+/** 获取全部术语（含停用），仅管理员 */
+export async function listGlossary(token: string): Promise<GlossaryTerm[]> {
+  const response = await fetch(`${API_BASE_URL}/api/glossary`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error(`获取业务字典失败：HTTP ${response.status}`);
+  return (await response.json()) as GlossaryTerm[];
+}
+
+export async function createGlossary(
+  token: string,
+  input: GlossaryInput,
+): Promise<GlossaryTerm> {
+  const response = await fetch(`${API_BASE_URL}/api/glossary`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error(`新增术语失败：HTTP ${response.status}`);
+  return (await response.json()) as GlossaryTerm;
+}
+
+export async function updateGlossary(
+  token: string,
+  id: string,
+  input: GlossaryInput & { enabled: boolean },
+): Promise<GlossaryTerm> {
+  const response = await fetch(`${API_BASE_URL}/api/glossary/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error(`更新术语失败：HTTP ${response.status}`);
+  return (await response.json()) as GlossaryTerm;
+}
+
+export async function deleteGlossary(token: string, id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/glossary/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error(`删除术语失败：HTTP ${response.status}`);
+}

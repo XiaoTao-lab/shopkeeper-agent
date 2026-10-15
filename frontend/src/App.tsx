@@ -5,6 +5,7 @@
 import {
   Activity,
   BarChart3,
+  BookOpen,
   Eraser,
   Leaf,
   LogIn,
@@ -15,6 +16,7 @@ import {
 import { type FormEvent, useState } from "react";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
+import { GlossaryPanel } from "./components/GlossaryPanel";
 import { MessageBubble } from "./components/MessageBubble";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { fetchToken } from "./lib/agentApi";
@@ -64,6 +66,7 @@ export default function App() {
   const [loginName, setLoginName] = useState(DEMO_USERS[0].value);
   const [loginPassword, setLoginPassword] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
+  const [showGlossary, setShowGlossary] = useState(false);
 
   const token = session?.token ?? null;
   const username = session?.username ?? null;
@@ -197,6 +200,17 @@ export default function App() {
                   <span className="text-ink/35">/</span>
                   {/* 角色来自令牌 claim，前端只负责展示，改不了 */}
                   <span className="font-medium text-ink">{roleLabel(session.role)}</span>
+                  {session.role === "admin" ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowGlossary(true)}
+                      className="inline-flex items-center gap-1 border-l border-ink/15 pl-1.5 text-ink/60 transition hover:text-ink"
+                      title="业务字典管理"
+                    >
+                      <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+                      业务字典
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={handleLogout}
@@ -308,6 +322,9 @@ export default function App() {
             onStop={stopQuery}
           />
         </main>
+        {showGlossary && token ? (
+          <GlossaryPanel token={token} onClose={() => setShowGlossary(false)} />
+        ) : null}
       </div>
     </div>
   );

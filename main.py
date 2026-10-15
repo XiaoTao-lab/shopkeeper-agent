@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.lifespan import lifespan
 from app.api.routers.auth_router import auth_router
+from app.api.routers.glossary_router import router as glossary_router
 from app.api.routers.health_router import health_router
 from app.api.routers.query_router import query_router
 from app.api.routers.session_router import router as session_router
@@ -36,6 +37,7 @@ async def history_error_handler(request: Request, exc: HistoryError):
 
 # 把各业务路由注册进应用；没有挂载时，/docs 和真实 HTTP 请求都访问不到该接口
 app.include_router(auth_router)
+app.include_router(glossary_router)
 app.include_router(query_router)
 app.include_router(session_router)
 app.include_router(health_router)
