@@ -54,31 +54,42 @@ export type ChartSpec = {
   reason?: string;
 };
 
-export type ResultEvent = {
+// 结果列描述：有序、带类型，用于表格渲染、排序、CSV 导出
+export type ResultColumn = {
+  key: string;
+  label: string;
+  type: "string" | "decimal" | "integer" | "number" | "boolean" | "date" | "datetime" | "unknown";
+  encoding: "string" | "json";
+};
+
+// 结构化结果快照：包含有序列定义和数据行
+export type ResultSnapshot = {
   type: "result";
-  data: unknown;
-  // 空结果标记：当后端判定为"无数据"时为 true，并附带一句可读提示
+  schema_version: 1;
+  columns: ResultColumn[];
+  data: Array<Record<string, unknown>>;
+  returned_row_count: number;
+  truncated: boolean;
   empty?: boolean;
   message?: string;
-  // 一句话结论：把结果表压成一句人话（仅在有数据时下发）
   summary?: string;
-  // 图表说明书：时间→折线、对比→柱状；判定不该出图时不下发
   chart?: ChartSpec;
-  // 可解释信息：问题理解 / 指标口径 / SQL / 耗时
   explain?: ExplainInfo;
-  // 权限提示：角色、是否行级过滤、脱敏列
   permission?: PermissionInfo;
 };
+
+export type ResultEvent = ResultSnapshot;
 
 export type ErrorEvent = {
   type: "error";
   message: string;
 };
 
-// 会话元信息：后端在流开始时下发本次会话 id，用于多轮续接
+// 会话元信息：后端在流开始时下发本次会话 id 和 run_id，用于多轮续接和状态追踪
 export type MetaEvent = {
   type: "meta";
   thread_id: string;
+  run_id: string;
 };
 
 // 澄清追问：问题有指标歧义时，后端反问并给出候选指标供用户选择
@@ -93,12 +104,21 @@ export type ClarifyEvent = {
   options?: ClarifyOption[];
 };
 
+// 终态事件：标识一次查询完成
+export type DoneEvent = {
+  type: "done";
+  run_id: string;
+  status: "completed" | "failed" | "interrupted";
+  outcome: "result" | "empty" | "clarify" | "blocked" | "error";
+};
+
 export type AgentEvent =
   | ProgressEvent
   | ResultEvent
   | ErrorEvent
   | MetaEvent
-  | ClarifyEvent;
+  | ClarifyEvent
+  | DoneEvent;
 
 export type StepState = {
   step: string;
@@ -106,14 +126,40 @@ export type StepState = {
   updatedAt: number;
 };
 
+// 会话摘要（列表用）
+export type SessionSummary = {
+  id: string;
+  title: string | null;
+  scope_changed: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+// 查询运行记录
+export type RunRecord = {
+  id: string;
+  session_id: string;
+  client_request_id: string;
+  raw_query: string;
+  rewritten_query: string | null;
+  status: "running" | "completed" | "failed" | "interrupted";
+  outcome: "result" | "empty" | "clarify" | "blocked" | "error" | null;
+  terminal_event: ResultSnapshot | ClarifyEvent | ErrorEvent | null;
+  created_at: string;
+  deadline_at: string;
+  finished_at: string | null;
+  end_reason: string | null;
+};
+
+// 聊天消息：一条用户问题 + 助手回复
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   createdAt: number;
-  status?: "streaming" | "done" | "error";
+  status?: "streaming" | "done" | "error" | "confirming" | "interrupted";
   steps?: StepState[];
-  result?: unknown;
+  result?: ResultSnapshot;
   error?: string;
   // 澄清追问的候选指标：渲染成可点击的选项，点击后把指标名填入输入框
   clarify?: ClarifyOption[];
@@ -125,4 +171,6 @@ export type ChatMessage = {
   explain?: ExplainInfo;
   // 权限提示：渲染为结果上方的角色/过滤/脱敏提示条
   permission?: PermissionInfo;
+  // 关联的 run_id，用于状态查询和 CSV 导出
+  run_id?: string;
 };

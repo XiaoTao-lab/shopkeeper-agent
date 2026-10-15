@@ -3,11 +3,12 @@
  * 组合展示用户问题、智能体回复、执行流程、一句话结论和结果表格，
  * 并在表格下方依次提供"自动图表"（柱状 / 折线）与可折叠的"可解释面板"。
  */
-import { Bot, ChevronDown, Copy, Info, ShieldCheck, Sparkles, UserRound } from "lucide-react";
+import { Bot, ChevronDown, Copy, Download, Info, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { ResultChart } from "./ResultChart";
 import { ResultTable } from "./ResultTable";
 import { StepRail } from "./StepRail";
 import { cn, formatTime, toClipboardText } from "../lib/format";
+import { downloadCsv } from "../lib/agentApi";
 import { roleLabel } from "../lib/roles";
 import type { ChatMessage, ExplainInfo } from "../types/agent";
 
@@ -123,16 +124,47 @@ function ExplainPanel({ explain }: { explain: ExplainInfo }) {
 export function MessageBubble({
   message,
   onPickClarify,
+  token,
+  sessionId,
 }: {
   message: ChatMessage;
   onPickClarify?: (text: string) => void;
+  token?: string | null;
+  sessionId?: string | null;
 }) {
   const isUser = message.role === "user";
 
   const copy = async () => {
-    const text = message.result ? toClipboardText(message.result) : message.content;
+    const text = message.result ? toClipboardText(message.result.data) : message.content;
     await navigator.clipboard.writeText(text);
   };
+
+  const handleDownloadCsv = async () => {
+    if (!token || !sessionId || !message.run_id) return;
+    try {
+      const blob = await downloadCsv(token, sessionId, message.run_id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `query-${message.run_id}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("CSV 导出失败:", err);
+    }
+  };
+
+  const canDownload =
+    !isUser &&
+    message.status === "done" &&
+    message.result &&
+    message.result.type === "result" &&
+    !message.result.empty &&
+    token &&
+    sessionId &&
+    message.run_id;
 
   return (
     <article className={cn("group flex gap-3", isUser && "justify-end")}>
@@ -154,15 +186,29 @@ export function MessageBubble({
           <div className="flex items-start justify-between gap-3">
             <p className="whitespace-pre-wrap text-[15px] leading-7">{message.content}</p>
             {!isUser && message.status !== "streaming" && (
-              <button
-                type="button"
-                onClick={copy}
-                className="shrink-0 rounded-full p-1.5 text-ink/45 opacity-0 outline-none transition hover:bg-ink/5 hover:text-ink focus:opacity-100 focus:ring-2 focus:ring-moss/40 group-hover:opacity-100"
-                title="复制"
-                aria-label="复制"
-              >
-                <Copy className="h-4 w-4" aria-hidden="true" />
-              </button>
+              <div className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  onClick={copy}
+                  className="rounded-full p-1.5 text-ink/45 opacity-0 outline-none transition hover:bg-ink/5 hover:text-ink focus:opacity-100 focus:ring-2 focus:ring-moss/40 group-hover:opacity-100"
+                  title="复制"
+                  aria-label="复制"
+                >
+                  <Copy className="h-4 w-4" aria-hidden="true" />
+                </button>
+                {canDownload && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadCsv}
+                    className="inline-flex items-center gap-1 rounded border border-moss/35 bg-moss/8 px-2 py-1 text-xs font-medium text-moss outline-none transition hover:bg-moss/15 focus:ring-2 focus:ring-moss/40"
+                    title="下载 CSV"
+                    aria-label="下载 CSV"
+                  >
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                    导出 CSV
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -225,7 +271,7 @@ export function MessageBubble({
 
           {/* 自动图表：后端判定该出图时才下发 spec；放在表格下方，先看"数"再看"势" */}
           {!isUser && message.chart && message.result !== undefined && (
-            <ResultChart spec={message.chart} data={message.result} />
+            <ResultChart spec={message.chart} data={message.result.data} />
           )}
 
           {!isUser && message.explain && <ExplainPanel explain={message.explain} />}
