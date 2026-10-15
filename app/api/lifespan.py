@@ -17,11 +17,18 @@ from app.clients.mysql_client_manager import (
     meta_mysql_client_manager,
 )
 from app.clients.qdrant_client_manager import qdrant_client_manager
+from app.conf.app_config import app_config
+from app.core.security import validate_auth_config
+from app.repositories.mysql.meta.history_repository import HistoryRepository
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """管理应用启动和关闭两个阶段的外部资源"""
+
+    # 最先做鉴权自检：密钥没配好就该在启动那一刻直接失败，
+    # 而不是等线上第一个请求打进来才发现全是 401（fail-fast）
+    validate_auth_config()
 
     # 启动阶段：先建立各类外部服务客户端，后续依赖函数会从 manager 中取已初始化对象
     qdrant_client_manager.init()
@@ -29,6 +36,17 @@ async def lifespan(app: FastAPI):
     es_client_manager.init()
     meta_mysql_client_manager.init()
     dw_mysql_client_manager.init()
+
+    # 单 worker 演示部署：启动前将遗留 running 标成 interrupted 并清除 active_run_id
+    try:
+        history_repo = HistoryRepository(
+            meta_mysql_client_manager.session_factory,
+            app_config.query_run_timeout_seconds,
+        )
+        await history_repo.recover_on_startup()
+    except Exception as e:
+        from app.core.log import logger
+        logger.warning(f"启动期恢复遗留运行失败（可忽略）：{e}")
 
     # yield 之前是启动逻辑，yield 之后是关闭逻辑；中间阶段由 FastAPI 正常处理请求
     yield

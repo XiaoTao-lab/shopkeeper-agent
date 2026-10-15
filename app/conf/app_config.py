@@ -149,6 +149,38 @@ class RBACConfig:
 
 
 @dataclass
+class AuthConfig:
+    """鉴权（JWT）配置
+
+    核心不变量：**角色由服务端决定，客户端无法指定**。
+    客户端只能携带服务端签发过的令牌，改内容就会导致签名不匹配。
+
+    刻意**不提供"关闭鉴权"的开关**：配置里的一个 ``false`` 就能把系统敞开，
+    是比漏洞本身更常见的事故来源。确需本地绕过时，请改代码并走 review，
+    让"关掉鉴权"这件事在 diff 里看得见。
+    """
+
+    # 签名密钥，来自环境变量 JWT_SECRET；为空或过短时拒绝启动
+    secret_key: str
+    # 服务端固定校验的算法。绝不采用令牌头里的 alg，避免算法混淆绕过验签
+    algorithm: str
+    # 签发者标识；校验时比对，避免别的系统签的令牌被拿来用
+    issuer: str
+    # 令牌有效期（分钟）
+    expire_minutes: int
+    # 演示用签发点开关；生产环境必须为 False
+    dev_login_enable: bool = False
+    # 演示用共享口令（来自环境变量 DEV_LOGIN_PASSWORD）
+    dev_login_password: str = ""
+    # 演示用账号 → 角色映射。角色按用户名查表得出，客户端只能选账号、不能选角色
+    dev_users: dict[str, str] = field(default_factory=dict)
+
+    def resolve_role_of(self, username: str) -> str | None:
+        """按用户名查出角色；查不到返回 None（调用方应拒绝签发令牌）。"""
+        return self.dev_users.get(username)
+
+
+@dataclass
 class AppConfig:
     """项目级总配置入口"""
 
@@ -161,7 +193,9 @@ class AppConfig:
     llm: LLMConfig
     sql_guard: SQLGuardConfig
     rbac: RBACConfig
+    auth: AuthConfig
     observability: ObservabilityConfig
+    query_run_timeout_seconds: int = 300
     # 召回并发配置带默认值：即使配置文件里没有 recall 段也能正常启动
     recall: RecallConfig = field(default_factory=RecallConfig)
 

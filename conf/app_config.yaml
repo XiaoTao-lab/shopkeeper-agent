@@ -59,6 +59,9 @@ llm:
 sql_guard:
   max_rows: 1000
 
+# 单次问数绝对期限（秒）；预登记即开始计时，重连不延长。
+query_run_timeout_seconds: 300
+
 # 可观测（链路追踪）。enable=false 时节点不做任何埋点，性能零损耗；
 # sample_rate 控制采样比例（1.0 = 全采，本地开发默认全采）；
 # store_span=false 时只写 trace 头表，不写 trace_span 明细（高并发场景省写入）。
@@ -91,3 +94,30 @@ rbac:
     guest:
       region_ids: ["R002", "R005"]
       mask_columns: ["customer_name"]
+
+# 鉴权（JWT）。核心设计：**角色由服务端决定，不由客户端指定**。
+# 客户端拿到的是一张服务端签过名的令牌，能验证真伪、带过期时间；
+# 想改角色就必须改令牌内容，而改了签名就对不上——这正是它比 X-User-Role
+# 请求头（客户端自己写"我是管理员"）强的地方。
+auth:
+  # 刻意不提供"关闭鉴权"的开关：配置里的一个 false 就能把系统敞开，
+  # 这是比漏洞本身更常见的事故来源。确需绕过请改代码并走 review。
+  # 签名密钥必须来自环境变量；启动时若为空或过短会直接启动失败，避免"带病上线"。
+  secret_key: ${oc.env:JWT_SECRET}
+  # 服务端固定使用该算法校验，**绝不读取令牌头里的 alg 字段**
+  # （否则攻击者可声明 alg=none 或 HS/RS 混淆来绕过验签）。
+  algorithm: HS256
+  issuer: shopkeeper-agent
+  # 令牌有效期（分钟）。过期后必须重新登录换新令牌。
+  expire_minutes: 120
+  # --- 以下为「演示用签发点」，生产环境必须删除或置为 false ---
+  # 用共享口令换取令牌。注意角色不是请求里带的，而是下面的 dev_users 按用户名查出来的，
+  # 所以客户端无法直接要一个 admin 令牌（除非拿 admin 的账号登录）。
+  # 生产替换点：改接公司 SSO / LDAP，或查用户表并校验密码哈希（如 argon2 / bcrypt）。
+  dev_login_enable: true
+  dev_login_password: ${oc.env:DEV_LOGIN_PASSWORD}
+  dev_users:
+    boss: admin
+    east: east_manager
+    analyst: analyst
+    guest: guest

@@ -255,6 +255,37 @@ def test_subquery_injected_sql_still_valid_select() -> None:
     assert isinstance(statements[0], exp.Select)
 
 
+def test_union_filters_each_branch() -> None:
+    sql = (
+        "SELECT order_id FROM fact_order UNION ALL "
+        "SELECT order_id FROM fact_order"
+    )
+    result = inject_row_filter(sql, _REGIONS)
+    assert result.applied and result.modified
+    statement = sqlglot.parse_one(result.sql, read="mysql")
+    assert isinstance(statement, exp.Union)
+    for branch in (statement.left, statement.right):
+        assert isinstance(branch, exp.Select)
+        assert "R002" in branch.args["where"].sql()
+
+
+def test_join_filters_all_sensitive_tables() -> None:
+    sql = "SELECT * FROM fact_order a JOIN fact_order b ON a.order_id = b.order_id"
+    result = inject_row_filter(sql, _REGIONS)
+    assert "a.region_id" in _where_text(result.sql)
+    assert "b.region_id" in _where_text(result.sql)
+
+
+def test_existing_filter_inside_or_does_not_bypass_rls() -> None:
+    sql = (
+        "SELECT * FROM fact_order WHERE "
+        "region_id IN ('R002', 'R005') OR region_id = 'R004'"
+    )
+    result = inject_row_filter(sql, _REGIONS)
+    assert result.applied and result.modified
+    assert "AND" in _where_text(result.sql)
+
+
 def test_subquery_idempotent_double_inject() -> None:
     """子查询场景同样幂等：重复注入不再叠加"""
     sql = (

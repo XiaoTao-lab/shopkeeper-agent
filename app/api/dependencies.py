@@ -8,7 +8,8 @@ FastAPI 依赖组装
 
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,14 +20,58 @@ from app.clients.mysql_client_manager import (
     meta_mysql_client_manager,
 )
 from app.clients.qdrant_client_manager import qdrant_client_manager
+from app.conf.app_config import app_config
+from app.core.security import Identity, TokenError, decode_access_token
 from app.repositories.es.value_es_repository import ValueESRepository
 from app.repositories.mysql.dw.dw_mysql_repository import DWMySQLRepository
 from app.repositories.mysql.meta.audit_log_repository import AuditLogRepository
+from app.repositories.mysql.meta.history_repository import HistoryRepository
 from app.repositories.mysql.meta.meta_mysql_repository import MetaMySQLRepository
 from app.repositories.mysql.meta.trace_repository import TraceRepository
 from app.repositories.qdrant.column_qdrant_repository import ColumnQdrantRepository
 from app.repositories.qdrant.metric_qdrant_repository import MetricQdrantRepository
 from app.services.query_service import QueryService
+from app.services.session_service import SessionService
+
+# auto_error=False：由本模块自己决定 401 的响应体与响应头，
+# 而不是让 FastAPI 返回它的默认文案（默认文案不带头部，且格式和项目其余错误不一致）。
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _unauthorized(detail: str) -> HTTPException:
+    """统一的 401 响应
+
+    带 ``WWW-Authenticate: Bearer`` 是 HTTP 规范要求，客户端据此知道
+    "换个令牌再来"，而不是以为接口坏了。
+    """
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def get_current_identity(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)
+    ],
+) -> Identity:
+    """从 ``Authorization: Bearer <token>`` 解析调用方身份
+
+    **fail-closed**：缺少令牌、格式不对、签名不符、已过期，任何一步不通过都直接 401，
+    绝不回落到某个默认角色继续执行——"拿不到身份就放行"正是这次要修掉的问题。
+
+    角色从令牌 claim 取出，客户端无法篡改：改了内容签名就对不上。
+    """
+    # HTTPBearer 已经保证凭证以 Bearer 开头；没带或格式不对时这里拿到的是 None
+    if credentials is None or not credentials.credentials:
+        raise _unauthorized("缺少访问令牌")
+
+    try:
+        return decode_access_token(credentials.credentials)
+    except TokenError as exc:
+        # TokenError 的文案本身就不区分"过期/签名错/格式错"，这里原样透出即可
+        raise _unauthorized(str(exc)) from exc
 
 
 async def get_meta_session():
@@ -100,6 +145,11 @@ async def get_value_es_repository() -> ValueESRepository:
     return ValueESRepository(es_client_manager.client)
 
 
+def get_session_service() -> SessionService:
+    """History uses its own short transactions, never the audit/query request session."""
+    return SessionService(HistoryRepository(meta_mysql_client_manager.session_factory, app_config.query_run_timeout_seconds))
+
+
 async def get_query_service(
     meta_mysql_repository: Annotated[
         MetaMySQLRepository, Depends(get_meta_mysql_repository)
@@ -119,6 +169,7 @@ async def get_query_service(
         AuditLogRepository, Depends(get_audit_log_repository)
     ],
     trace_repository: Annotated[TraceRepository, Depends(get_trace_repository)],
+    session_service: Annotated[SessionService, Depends(get_session_service)],
 ) -> QueryService:
     """组装一次查询所需的业务服务"""
 
@@ -132,4 +183,5 @@ async def get_query_service(
         value_es_repository=value_es_repository,
         audit_log_repository=audit_log_repository,
         trace_repository=trace_repository,
+        history_repository=session_service.history,
     )

@@ -48,29 +48,21 @@ class RlsResult:
     modified: bool = False
 
 
-def _find_scope_select(
-    statement: exp.Expression,
-) -> tuple[exp.Select | None, str | None]:
-    """定位承载区域过滤的表**及其所在的 SELECT 层**，返回 (所在 SELECT, 别名或表名)。
+def _scope_tables(statement: exp.Expression) -> list[tuple[exp.Select, str]] | None:
+    """返回所有敏感表及其所在 SELECT；无法确定作用域时返回 None。
 
-    优先 `fact_order`（事实表，区域过滤的枢纽），退到 `dim_region`。
-    两者都不在语句里时返回 (None, None)——说明该查询不涉及区域维度。
-
-    **为何返回「所在层」而不只返回表名**：过滤条件必须注入到「能看见这张表」的那层。
-    `find_all` 是**全局递归**的（能钻进子查询找到事实表），而 WHERE 若固定加在最外层，
-    两者作用域就会错位。这里用 `find_ancestor` 取表的**最近 SELECT 祖先**，把条件落在该层。
+    一条语句可包含 UNION 的多支或多个敏感表。只过滤第一张表会让
+    其他分支或子查询泄露未授权区域数据，因此必须逐张覆盖。
     """
-    tables = list(statement.find_all(exp.Table))
-    for name in _SCOPE_TABLES:
-        for table in tables:
-            if table.name.lower() == name:
-                scope_select = table.find_ancestor(exp.Select)
-                if scope_select is None:
-                    # 防御性兜底：Table 理论上必在某 Select 内，真出现则跳过该表
-                    continue
-                # alias_or_name：有别名用别名（如 fo），没有则用表名本身
-                return scope_select, table.alias_or_name
-    return None, None
+    scopes: list[tuple[exp.Select, str]] = []
+    for table in statement.find_all(exp.Table):
+        if table.name.lower() not in _SCOPE_TABLES:
+            continue
+        scope_select = table.find_ancestor(exp.Select)
+        if scope_select is None:
+            return None
+        scopes.append((scope_select, table.alias_or_name))
+    return scopes
 
 
 def _has_same_region_filter(
@@ -84,7 +76,17 @@ def _has_same_region_filter(
     """
     target = set(region_ids)
     alias = scope_alias.lower()
-    for node in statement.find_all(exp.In):
+    where = statement.args.get("where")
+    if where is None:
+        return False
+    # 仅认可 WHERE 顶层 AND 连接的约束，不能把 OR 内的 IN 误认成强制过滤。
+    predicates = [where.this]
+    for predicate in predicates:
+        if isinstance(predicate, exp.And):
+            predicates.extend([predicate.left, predicate.right])
+    for node in predicates:
+        if not isinstance(node, exp.In):
+            continue
         column = node.this
         if not isinstance(column, exp.Column):
             continue
@@ -127,39 +129,32 @@ def inject_row_filter(sql: str, region_ids: list[str] | None) -> RlsResult:
         # 但明确标记未应用，便于审计发现"该限制却没限制"的情况
         return RlsResult(sql=raw, applied=False, reason=f"SQL 无法解析，跳过行级过滤：{e}")
 
-    if len(statements) != 1 or not isinstance(statements[0], exp.Select):
-        return RlsResult(sql=raw, applied=False, reason="非单条 SELECT，跳过行级过滤")
+    if len(statements) != 1 or not isinstance(statements[0], (exp.Select, exp.Union)):
+        return RlsResult(sql=raw, applied=False, reason="非单条 SELECT/UNION，跳过行级过滤")
 
     statement = statements[0]
-
-    scope_select, scope_alias = _find_scope_select(statement)
-    if scope_select is None or scope_alias is None:
+    scopes = _scope_tables(statement)
+    if scopes is None:
+        return RlsResult(sql=raw, applied=False, reason="敏感表作用域无法确定")
+    if not scopes:
         return RlsResult(sql=raw, applied=False, reason="查询未涉及区域维度表，跳过行级过滤")
 
-    # 幂等：已经注入过完全相同的区域条件就不再叠加（在表所在层内判定）
-    if _has_same_region_filter(scope_select, scope_alias, region_ids):
-        return RlsResult(
-            sql=raw,
-            applied=True,
-            region_ids=list(region_ids),
-            reason="已存在相同区域条件，跳过重复注入",
-            modified=False,
+    modified = False
+    for scope_select, scope_alias in scopes:
+        # 同一作用域的每个敏感表均需过滤；已存在相同条件时保持幂等。
+        if _has_same_region_filter(scope_select, scope_alias, region_ids):
+            continue
+        predicate = exp.In(
+            this=exp.column("region_id", table=scope_alias),
+            expressions=[exp.Literal.string(r) for r in region_ids],
         )
-
-    # 构造 `alias.region_id IN ('R002','R005')` 并 AND 进**表所在层**的 WHERE
-    column = exp.column("region_id", table=scope_alias)
-    predicate = exp.In(
-        this=column, expressions=[exp.Literal.string(r) for r in region_ids]
-    )
-    # Select.where 默认 append=True：已有 WHERE 时用 AND 合并，没有则新建
-    # 注意：注入到 scope_select（表所在层），而非最外层 statement——否则子查询场景会报 Unknown column；
-    # 序列化仍从根 statement 出发，保证返回完整 SQL。
-    scope_select.where(predicate, copy=False)
+        scope_select.where(predicate, copy=False)
+        modified = True
 
     return RlsResult(
-        sql=statement.sql(dialect=_DIALECT),
+        sql=statement.sql(dialect=_DIALECT) if modified else raw,
         applied=True,
         region_ids=list(region_ids),
-        reason="已注入区域行级过滤",
-        modified=True,
+        reason="已注入区域行级过滤" if modified else "已存在相同区域条件，跳过重复注入",
+        modified=modified,
     )
