@@ -33,6 +33,13 @@ _STEP = "改写多轮问题"
 _HISTORY_LIMIT = 6
 # 无历史时给模型的占位文案，保证提示词里 {history} 永远有内容
 _EMPTY_HISTORY = "(无历史，这是第一轮)"
+# 模型判断"本轮输入无法构成数据查询"时输出的标记（如只输了个数字/打招呼），
+# 据此下发澄清反问并短路，而不是编造一个问题去迎合无意义输入
+_UNCLEAR_MARKER = "[需澄清]"
+_UNCLEAR_REPLY = (
+    "没能把这句话理解成一次数据查询。请换个说法描述您想查的内容，"
+    "例如：统计2025年第一季度各地区的GMV。"
+)
 
 
 def _ai_label(content: str) -> str:
@@ -93,6 +100,8 @@ async def rewrite_query(state: DataAgentState, runtime: Runtime[DataAgentContext
                 "rewritten_query": query,
                 "started_at": int(time.time() * 1000),
                 "error": None,
+                "clarify_question": "",
+                "clarify_options": [],
                 "messages": [HumanMessage(content=query)],
             }
 
@@ -111,6 +120,23 @@ async def rewrite_query(state: DataAgentState, runtime: Runtime[DataAgentContext
             logger.warning("多轮改写结果为空，回退为原始问题")
             rewritten = query
 
+        # 模型判断本轮输入无法构成数据查询（如只输了个数字）：不编造问题，
+        # 下发澄清反问并短路，由条件边直接进 finalize 收尾
+        if rewritten.startswith(_UNCLEAR_MARKER):
+            logger.info(f"多轮改写：无法理解本轮问题 → 澄清反问（原始问题：{query}）")
+            writer({"type": "clarify", "message": _UNCLEAR_REPLY, "options": []})
+            writer({"type": "progress", "step": _STEP, "status": "success"})
+            # 反问记进历史：下一轮改写才能知道用户是在回应这个澄清
+            return {
+                "query": query,
+                "rewritten_query": query,
+                "started_at": int(time.time() * 1000),
+                "error": None,
+                "clarify_question": _UNCLEAR_REPLY,
+                "clarify_options": [],
+                "messages": [HumanMessage(content=query), AIMessage(content=_UNCLEAR_REPLY)],
+            }
+
         logger.info(f"多轮改写：{query} → {rewritten}")
         writer({"type": "progress", "step": _STEP, "status": "success"})
         # 历史里存"改写后的独立问题"，让后续每一轮都能在自洽语境上继续改写
@@ -119,6 +145,8 @@ async def rewrite_query(state: DataAgentState, runtime: Runtime[DataAgentContext
             "rewritten_query": rewritten,
             "started_at": int(time.time() * 1000),
             "error": None,
+            "clarify_question": "",
+            "clarify_options": [],
             "messages": [HumanMessage(content=rewritten)],
         }
 
