@@ -8,12 +8,10 @@
 .npm-cache
 .angular/
 .pnpm-store/
-# 修复 node_modules 解链时产生的临时备份目录（2026-10-13）
-_nm_flatbak_*/
+# 本地备份归档（node_modules 备份、Docker vhdx 备份等，统一收进 _backups）
+_backups/
 
-# 本地大文件与临时产物（2026-10-13 推送进度前补充）
-frontend/node_modules.broken.bak/
-_docker_wsl_vhdx_backup_*/
+# 本地临时产物（2026-10-13 推送进度前补充）
 _tmp_*
 _frontend-fixed.png
 frontend/tsc_out.txt
@@ -74,6 +72,7 @@ agent_output.log
 logs/
 $null
 .claude/
+.serena/
 
 # 临时探查脚本（引用已废弃的 X-User-Role 越权 header）与个人规划草稿
 app/scripts/_probe.py
